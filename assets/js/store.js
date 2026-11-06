@@ -223,26 +223,31 @@ function paymentPage() {
 }
 function accountPage() {
   const isRegister = authMode === 'register';
-  const modeTabs = `<div class="auth-tabs" role="group" aria-label="Customer account options">
-    <button type="button" class="${!isRegister?'active':''}" data-auth-mode="login" aria-pressed="${!isRegister}">Customer Login</button>
-    <button type="button" class="${isRegister?'active':''}" data-auth-mode="register" aria-pressed="${isRegister}">New Registration</button>
+  const phoneIcon = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7.2 2.8 5 2.4c-1.3-.2-2.5.6-2.8 2-1.4 7.9 7.5 16.9 15.4 17.5 1.4.1 2.4-.9 2.7-2.1l.5-2.3-5-2.6-2.5 2.1a16 16 0 0 1-6.4-6.4L9 8.1z"/></svg>`;
+  const messageIcon = `<svg class="auth-main-icon" viewBox="0 0 100 115" fill="none" aria-hidden="true"><rect x="17" y="4" width="65" height="107" rx="13" stroke="currentColor" stroke-width="5"/><path d="M41 13h17M42 100h17" stroke="currentColor" stroke-linecap="round" stroke-width="5"/><path d="M36 40h46a10 10 0 0 1 10 10v16a10 10 0 0 1-10 10H63L51 87V76H36a10 10 0 0 1-10-10V50a10 10 0 0 1 10-10Z" fill="#E56C10"/><text x="58" y="64" text-anchor="middle" fill="white" font-size="25" font-weight="900" letter-spacing="2">****</text></svg>`;
+  const tabs = `<div class="auth-tabs" role="group" aria-label="Customer account options">
+    <button type="button" class="${!isRegister?'active':''}" data-auth-mode="login" aria-pressed="${!isRegister}"><span aria-hidden="true">⚿</span> Customer Login</button>
+    <button type="button" class="${isRegister?'active':''}" data-auth-mode="register" aria-pressed="${isRegister}"><span aria-hidden="true">♙</span> New Registration</button>
   </div>`;
-  const loginSection = !firebaseReady
-    ? `<div class="login-panel"><p class="eyebrow">SECURE CUSTOMER ACCESS</p><h2>Mobile OTP Login</h2><p>Firebase account setup is being completed. Please check back soon.</p></div>`
-    : signedInUser
-    ? `<div class="login-panel"><p class="eyebrow">YOUR WOODPECK ACCOUNT</p><h2>Welcome${signedInUser.displayName?', '+esc(signedInUser.displayName):''}!</h2><p>Verified mobile number: <strong>${esc(signedInUser.phoneNumber || 'Verified customer')}</strong></p><button type="button" class="store-btn ghost" id="firebaseLogout">Sign Out</button><p class="login-hint">Orders are not live yet. Cart and addresses are saved on this device.</p></div>`
-    : phoneLoginStep === 'code'
-    ? `<div class="login-panel">${modeTabs}<p class="eyebrow">MOBILE VERIFICATION</p><h2>Enter your OTP</h2><p>Enter the 6-digit SMS code sent to +91 ${esc(lastLoginPhone.slice(0,2) + '••••••' + lastLoginPhone.slice(-2))}.</p><form id="firebaseCodeForm" class="login-form"><label for="firebaseOtp">Verification code</label><input type="text" id="firebaseOtp" name="otp" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" minlength="6" maxlength="6" required placeholder="6-digit OTP"/><button type="submit" class="store-btn primary">${isRegister?'Verify & Register':'Verify & Sign In'}</button></form><button type="button" class="login-link" id="firebaseGoBack">Change mobile number</button><p id="loginError" class="login-error" role="alert" hidden></p></div>`
-    : `<div class="login-panel">${modeTabs}<p class="eyebrow">${isRegister?'JOIN WOODPECK INTERNATIONAL':'SECURE CUSTOMER LOGIN'}</p><h2>${isRegister?'Create your account':'Login with Mobile OTP'}</h2><p>${isRegister?'Register with your name and mobile number. We will send a one-time code to verify your number.':'No password required. Enter your mobile number and verify with a one-time SMS code.'}</p><form id="firebasePhoneForm" class="login-form">${isRegister?'<label for="registrationName">Full Name</label><input type="text" id="registrationName" name="fullName" autocomplete="name" minlength="2" maxlength="70" required placeholder="Enter your full name"/>':''}<label for="firebasePhone">Mobile Number</label><div class="login-phone"><span>+91</span><input type="tel" id="firebasePhone" name="phone" inputmode="numeric" autocomplete="tel-national" pattern="[6-9][0-9]{9}" minlength="10" maxlength="10" required placeholder="10-digit mobile number"/></div><div id="firebase-recaptcha"></div><button type="submit" class="store-btn primary">${isRegister?'Send Registration OTP':'Send OTP'}</button></form><p id="loginError" class="login-error" role="alert" hidden></p><p class="login-hint">SMS verification uses Firebase. Your name and verified number will be associated with your account. Standard messaging and privacy terms apply.</p></div>`;
-  return `<div class="container store-page">${breadcrumb(['My Account'])}${head('HELLO THERE','My Account','Your Woodpeck International shopping space.')}
-   ${loginSection}
-   <div class="account-links">
-     <a href="#/wishlist"><span>♡</span><strong>My Wishlist</strong><small>See your saved furniture</small><b>→</b></a>
-     <a href="#/cart"><span>▤</span><strong>My Cart</strong><small>View selected furniture</small><b>→</b></a>
-     <a href="#/address"><span>⌂</span><strong>Saved Addresses</strong><small>Delivery address book on this device</small><b>→</b></a>
-     <a href="#/contact"><span>✉</span><strong>Contact & Policies</strong><small>Business information and policies</small><b>→</b></a>
-   </div><div class="account-alert"><strong>Checkout is a demo</strong><p>Customer order history and live order tracking still require a secure backend. This website does not accept payments or create real orders.</p></div>
-  </div>`;
+  let mainForm;
+  if (!firebaseReady) {
+    mainForm = `<h1>Customer Login</h1><h2>Login with Mobile OTP</h2><p>Secure mobile login is temporarily unavailable. Please check back soon.</p>`;
+  } else if (signedInUser) {
+    mainForm = `<h1>Welcome${signedInUser.displayName?', '+esc(signedInUser.displayName):''}!</h1><h2>Your Woodpeck account</h2><div class="auth-illustration">${messageIcon}</div><p>Your mobile number has been verified.</p><p><strong>${esc(signedInUser.phoneNumber || 'Verified customer')}</strong></p><button type="button" class="auth-submit" id="firebaseLogout">Sign Out</button>`;
+  } else if (phoneLoginStep === 'code') {
+    mainForm = `<h1>${isRegister?'New Registration':'Customer Login'}</h1><h2>Verify Your Mobile OTP</h2><div class="auth-illustration">${messageIcon}</div><p>Enter the 6-digit SMS code sent to +91 ${esc(lastLoginPhone.slice(0,2)+'••••••'+lastLoginPhone.slice(-2))}.</p><form id="firebaseCodeForm" class="login-form auth-form"><label for="firebaseOtp">Verification Code</label><input id="firebaseOtp" name="otp" type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" minlength="6" maxlength="6" required placeholder="6-digit OTP"/><button class="auth-submit" type="submit">${isRegister?'Verify & Register':'Verify & Sign In'}</button></form><button type="button" class="login-link" id="firebaseGoBack">Change mobile number</button><p class="login-error" id="loginError" role="alert" hidden></p>`;
+  } else {
+    mainForm = `<h1>${isRegister?'New Registration':'Customer Login'}</h1><h2>${isRegister?'Create Your Woodpeck Account':'Login with Mobile OTP'}</h2><div class="auth-illustration">${messageIcon}</div><p>${isRegister?'Enter your name and mobile number to create your account with one-time SMS verification.':'No password required. Enter your mobile number and verify with a one-time SMS code.'}</p>
+    <form id="firebasePhoneForm" class="login-form auth-form">${isRegister?'<label for="registrationName">Full Name</label><input type="text" id="registrationName" name="fullName" autocomplete="name" minlength="2" maxlength="70" required placeholder="Enter your full name"/>':''}<label for="firebasePhone">Mobile Number</label><div class="login-phone"><span>+91</span>${phoneIcon}<input type="tel" id="firebasePhone" name="phone" inputmode="numeric" autocomplete="tel-national" pattern="[6-9][0-9]{9}" minlength="10" maxlength="10" required placeholder="Enter 10-digit mobile number"/></div><div id="firebase-recaptcha"></div><button type="submit" class="auth-submit"><span aria-hidden="true">➤</span> ${isRegister?'Send Registration OTP':'Send OTP'}</button></form><p id="loginError" class="login-error" role="alert" hidden></p>
+    <div class="auth-or"><span>or</span></div><p class="auth-join">${isRegister?'Already registered?':'New to Woodpeck International?'}</p><button type="button" class="auth-switch" data-auth-mode="${isRegister?'login':'register'}">${isRegister?'Customer Login':'♙  Create New Account'}</button>`;
+  }
+  return `<section class="auth-fullscreen" aria-label="Woodpeck customer account">
+    <div class="auth-scene"><a class="auth-back" href="index.html" aria-label="Back to store">← Back to Store</a><div class="auth-brand"><img src="${asset('assets/images/woodpeck-brandmark.webp')}" alt="Woodpeck bird emblem"/><div class="auth-brand-name">Woodpeck</div><div class="auth-brand-sub"><span></span> INTERNATIONAL <span></span></div><p>Furniture &amp; Wood Products</p></div></div>
+    <div class="auth-card"><div class="auth-card-content">${signedInUser?'':tabs}${mainForm}
+      <div class="auth-benefits"><div><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 2 8 4v5c0 5-3 9-8 11-5-2-8-6-8-11V6zM8 12l3 3 5-6"/></svg><span>Secure<br/>Login</span></div><div><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m13 1-9 13h7l-1 9 10-14h-7z"/></svg><span>Quick<br/>Access</span></div><div><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10" width="14" height="12" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3m-4 5v3"/></svg><span>Your Data<br/>is Safe</span></div></div>
+      <small class="auth-legal">Phone authentication is provided by Firebase. Your verified phone number is used for sign-in. Orders and payments are still in demo mode.</small>
+    </div><div class="auth-wood-wave" aria-hidden="true"></div></div>
+  </section>`;
 }
 function contactPage() {
   return `<div class="container store-page">${breadcrumb(['Contact & Policies'])}${head('WOODPECK INTERNATIONAL','Contact & Policies','Details to be confirmed by the business owner.')}
@@ -269,6 +274,7 @@ function render() {
     default: body=`<div class="container store-page">${empty('Page not found','Explore our furniture collection.')}</div>`;
   }
   clearRecaptcha();
+  document.body.classList.toggle('auth-view',kind==='account');
   $('page').innerHTML=body;
   document.title = (kind.charAt(0).toUpperCase()+kind.slice(1))+' | Woodpeck International';
   updateBadges();
