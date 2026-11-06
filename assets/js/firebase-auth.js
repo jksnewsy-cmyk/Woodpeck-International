@@ -1,4 +1,4 @@
-import { initializeApp } from 'firebase/app';
+import { initializeApp, getApps, getApp } from 'firebase/app';
 import {
   getAuth, onAuthStateChanged, RecaptchaVerifier,
   signInWithPhoneNumber, signOut, updateProfile
@@ -16,7 +16,9 @@ const config = {
   messagingSenderId: '1050322816369',
 };
 export const firebaseReady = Object.values(config).every(Boolean);
-const auth = firebaseReady ? getAuth(initializeApp(config)) : null;
+// Admin imports the shared Firestore SDK first; never initialize the default
+// Firebase app twice with differing web config fields (duplicate-app error).
+const auth = firebaseReady ? getAuth(getApps().length ? getApp() : initializeApp(config)) : null;
 if (auth) auth.languageCode = 'en';
 
 export let signedInUser = null;
