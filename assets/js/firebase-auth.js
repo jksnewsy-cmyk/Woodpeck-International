@@ -1,7 +1,7 @@
 import { initializeApp } from 'firebase/app';
 import {
   getAuth, onAuthStateChanged, RecaptchaVerifier,
-  signInWithPhoneNumber, signOut
+  signInWithPhoneNumber, signOut, updateProfile
 } from 'firebase/auth';
 
 // Firebase web configuration is public by design. Overrides support future staging projects.
@@ -68,6 +68,15 @@ export async function confirmPhoneCode(code) {
   const result = await confirmation.confirm(code);
   resetPhoneSignIn();
   return result.user;
+}
+
+export async function registerCustomerName(user, name) {
+  if (!auth || !user || auth.currentUser?.uid !== user.uid) throw new Error('Verify your mobile number first.');
+  const cleanName = String(name || '').trim().replace(/\s+/g, ' ');
+  if (cleanName.length < 2 || cleanName.length > 70) throw new Error('Enter your full name (2-70 characters).');
+  await updateProfile(user, {displayName: cleanName});
+  signedInUser = auth.currentUser;
+  listeners.forEach(listener => listener(signedInUser));
 }
 
 export async function logoutPhoneUser() {

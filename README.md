@@ -88,3 +88,15 @@ Phone login provides authentication only. It does not create a secure order data
 customer profile store, payment processing, or access-controlled address storage.
 Do not take live payments with this demo; use Firestore security rules and a verified
 server-side order/payment flow for real commerce. Existing cart/address data is browser-only.
+
+
+## New Registration (Firebase Authentication)
+
+The **My Account** page has Customer Login and New Registration tabs. New Registration
+collects full name and mobile number, sends the existing Firebase phone OTP, then uses
+Firebase Auth's `updateProfile` to store the verified customer's display name.
+Sign-in and registration share Firebase phone authentication (no password); Firebase
+may create an account when a number first signs in. No phone-number directory or
+server-side restriction on existing/new phone numbers is enforced. Real SMS may cost money.
+A separate Firestore customer profile, admin approval workflow and order history are
+not yet included.

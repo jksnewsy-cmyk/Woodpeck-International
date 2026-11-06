@@ -1,10 +1,12 @@
 import {
   firebaseReady, signedInUser, onLoginChange,
-  sendPhoneCode, confirmPhoneCode, logoutPhoneUser,
+  sendPhoneCode, confirmPhoneCode, logoutPhoneUser, registerCustomerName,
   resetPhoneSignIn, clearRecaptcha
 } from './firebase-auth.js';
 let phoneLoginStep = 'number';
 let lastLoginPhone = '';
+let authMode = 'login';
+let registrationName = '';
 
 import './products.js';
 
@@ -220,13 +222,18 @@ function paymentPage() {
     </section>${cartSummary('',null)}</div></div>`;
 }
 function accountPage() {
+  const isRegister = authMode === 'register';
+  const modeTabs = `<div class="auth-tabs" role="group" aria-label="Customer account options">
+    <button type="button" class="${!isRegister?'active':''}" data-auth-mode="login" aria-pressed="${!isRegister}">Customer Login</button>
+    <button type="button" class="${isRegister?'active':''}" data-auth-mode="register" aria-pressed="${isRegister}">New Registration</button>
+  </div>`;
   const loginSection = !firebaseReady
-    ? `<div class="login-panel"><p class="eyebrow">SECURE CUSTOMER LOGIN</p><h2>Sign in with your mobile</h2><p>Mobile OTP login is being configured for Woodpeck International. Please check back once Firebase setup is complete.</p><p class="login-hint">Payments and orders are not yet enabled.</p></div>`
+    ? `<div class="login-panel"><p class="eyebrow">SECURE CUSTOMER ACCESS</p><h2>Mobile OTP Login</h2><p>Firebase account setup is being completed. Please check back soon.</p></div>`
     : signedInUser
-    ? `<div class="login-panel"><p class="eyebrow">SIGNED IN</p><h2>Welcome to Woodpeck</h2><p>Your verified mobile: <strong>${esc(signedInUser.phoneNumber || 'Verified customer')}</strong></p><button type="button" class="store-btn ghost" id="firebaseLogout">Sign Out</button><p class="login-hint">Cart, wishlist and addresses are still stored only in this browser. There are no live orders yet.</p></div>`
+    ? `<div class="login-panel"><p class="eyebrow">YOUR WOODPECK ACCOUNT</p><h2>Welcome${signedInUser.displayName?', '+esc(signedInUser.displayName):''}!</h2><p>Verified mobile number: <strong>${esc(signedInUser.phoneNumber || 'Verified customer')}</strong></p><button type="button" class="store-btn ghost" id="firebaseLogout">Sign Out</button><p class="login-hint">Orders are not live yet. Cart and addresses are saved on this device.</p></div>`
     : phoneLoginStep === 'code'
-    ? `<div class="login-panel"><p class="eyebrow">VERIFY YOUR NUMBER</p><h2>Enter your OTP</h2><p>Enter the 6-digit SMS code sent to +91 ${esc(lastLoginPhone.slice(0,2) + '••••••' + lastLoginPhone.slice(-2))}.</p><form id="firebaseCodeForm" class="login-form"><label for="firebaseOtp">Verification code</label><input type="text" id="firebaseOtp" name="otp" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" minlength="6" maxlength="6" required placeholder="6-digit OTP"/><button type="submit" class="store-btn primary">Verify & Sign In</button></form><button type="button" class="login-link" id="firebaseGoBack">Change mobile number</button><p id="loginError" class="login-error" role="alert" hidden></p></div>`
-    : `<div class="login-panel"><p class="eyebrow">SECURE CUSTOMER LOGIN</p><h2>Login with mobile OTP</h2><p>No password required. Enter your mobile number and verify with a one-time SMS code.</p><form id="firebasePhoneForm" class="login-form"><label for="firebasePhone">Mobile Number</label><div class="login-phone"><span>+91</span><input type="tel" id="firebasePhone" name="phone" inputmode="numeric" autocomplete="tel-national" pattern="[6-9][0-9]{9}" minlength="10" maxlength="10" required placeholder="10-digit mobile number"/></div><div id="firebase-recaptcha"></div><button type="submit" class="store-btn primary">Send OTP</button></form><p id="loginError" class="login-error" role="alert" hidden></p><p class="login-hint">You may receive an SMS. Your phone number is processed by Firebase/Google for verification and fraud prevention.</p></div>`;
+    ? `<div class="login-panel">${modeTabs}<p class="eyebrow">MOBILE VERIFICATION</p><h2>Enter your OTP</h2><p>Enter the 6-digit SMS code sent to +91 ${esc(lastLoginPhone.slice(0,2) + '••••••' + lastLoginPhone.slice(-2))}.</p><form id="firebaseCodeForm" class="login-form"><label for="firebaseOtp">Verification code</label><input type="text" id="firebaseOtp" name="otp" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" minlength="6" maxlength="6" required placeholder="6-digit OTP"/><button type="submit" class="store-btn primary">${isRegister?'Verify & Register':'Verify & Sign In'}</button></form><button type="button" class="login-link" id="firebaseGoBack">Change mobile number</button><p id="loginError" class="login-error" role="alert" hidden></p></div>`
+    : `<div class="login-panel">${modeTabs}<p class="eyebrow">${isRegister?'JOIN WOODPECK INTERNATIONAL':'SECURE CUSTOMER LOGIN'}</p><h2>${isRegister?'Create your account':'Login with Mobile OTP'}</h2><p>${isRegister?'Register with your name and mobile number. We will send a one-time code to verify your number.':'No password required. Enter your mobile number and verify with a one-time SMS code.'}</p><form id="firebasePhoneForm" class="login-form">${isRegister?'<label for="registrationName">Full Name</label><input type="text" id="registrationName" name="fullName" autocomplete="name" minlength="2" maxlength="70" required placeholder="Enter your full name"/>':''}<label for="firebasePhone">Mobile Number</label><div class="login-phone"><span>+91</span><input type="tel" id="firebasePhone" name="phone" inputmode="numeric" autocomplete="tel-national" pattern="[6-9][0-9]{9}" minlength="10" maxlength="10" required placeholder="10-digit mobile number"/></div><div id="firebase-recaptcha"></div><button type="submit" class="store-btn primary">${isRegister?'Send Registration OTP':'Send OTP'}</button></form><p id="loginError" class="login-error" role="alert" hidden></p><p class="login-hint">SMS verification uses Firebase. Your name and verified number will be associated with your account. Standard messaging and privacy terms apply.</p></div>`;
   return `<div class="container store-page">${breadcrumb(['My Account'])}${head('HELLO THERE','My Account','Your Woodpeck International shopping space.')}
    ${loginSection}
    <div class="account-links">
@@ -370,11 +377,20 @@ document.addEventListener('submit', async event => {
   try {
     if (form.id === 'firebasePhoneForm') {
       const phone = form.elements.phone.value.trim();
+      if (authMode === 'register') {
+        registrationName = form.elements.fullName.value.trim().replace(/\s+/g, ' ');
+        if (registrationName.length < 2 || registrationName.length > 70) throw new Error('Enter your full name (2-70 characters).');
+      }
       await sendPhoneCode(phone);
       lastLoginPhone = phone;
       phoneLoginStep = 'code';
     } else {
-      await confirmPhoneCode(form.elements.otp.value.trim());
+      const verifiedUser = await confirmPhoneCode(form.elements.otp.value.trim());
+      if (authMode === 'register' && registrationName) {
+        try { await registerCustomerName(verifiedUser, registrationName); }
+        catch (profileError) { toast('Mobile verified; name could not be saved. Please retry later.'); }
+      }
+      registrationName = '';
       phoneLoginStep = 'number';
     }
     render();
@@ -385,6 +401,15 @@ document.addEventListener('submit', async event => {
   }
 });
 document.addEventListener('click', async event => {
+  const modeButton = event.target.closest('[data-auth-mode]');
+  if (modeButton) {
+    resetPhoneSignIn();
+    phoneLoginStep = 'number';
+    authMode = modeButton.dataset.authMode === 'register' ? 'register' : 'login';
+    registrationName = '';
+    render();
+    return;
+  }
   if (event.target.closest('#firebaseGoBack')) {
     resetPhoneSignIn();
     phoneLoginStep = 'number';

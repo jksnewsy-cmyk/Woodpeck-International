@@ -264,3 +264,11 @@
 .login-hint{font-size:11px!important}
 #firebase-recaptcha{min-height:1px}
 @media(max-width:600px){.login-panel{padding:22px 17px}.login-panel h2{font-size:27px}}
+
+/* Customer login / registration toggle */
+.auth-tabs{display:grid;grid-template-columns:1fr 1fr;gap:6px;padding:5px;background:#f5e9dd;border-radius:12px;margin:0 0 23px}
+.auth-tabs button{border:none;border-radius:9px;background:transparent;color:#78513b;font-size:13px;font-weight:750;padding:13px 8px;cursor:pointer}
+.auth-tabs button.active{background:linear-gradient(110deg,#a9582b,#713212);color:white;box-shadow:0 3px 10px #6e2e171a}
+.login-form input[name=fullName]{margin-bottom:3px}
+.login-panel .store-btn.primary{border-radius:22px;background:linear-gradient(115deg,#b75820,#71300c);padding:15px 26px;font-weight:750}
+@media(max-width:390px){.auth-tabs button{font-size:12px;padding:12px 5px}}
