@@ -68,3 +68,26 @@ A public, static frontend preview is automatically built from `main` and publish
 https://jksnewsy-cmyk.github.io/Woodpeck-International/
 
 The workflow sets `GITHUB_PAGES=true` during the Vite build to use the project base path. Real payments, orders and login are not enabled.
+
+
+## Firebase phone OTP login (staged integration)
+
+The account page now includes a conditional Firebase phone OTP login UI.
+Without Firebase configuration it displays a polite setup-pending message, and does not send SMS or create accounts.
+
+1. Create a **separate** Firebase project for Woodpeck International at https://console.firebase.google.com/ (do not reuse CricketStar/JKS Shoppe).
+2. Add a Web app; copy the *public* Web SDK config fields into Vercel Environment Variables:
+   `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN`, `VITE_FIREBASE_PROJECT_ID`, `VITE_FIREBASE_APP_ID`.
+   Use `.env.local` for local development and never commit it.
+3. In Firebase Authentication -> Sign-in method, enable **Phone**.
+4. In Authentication -> Settings -> Authorized domains, add `www.woodpeckinternational.com`,
+   `woodpeckinternational.com`, and `woodpeck-international.vercel.app`.
+5. Set an SMS region policy appropriate to where customers reside (e.g. India only); new projects may block all regions until configured.
+6. **Real SMS phone verification is billed per SMS and requires Firebase Blaze / a linked Cloud Billing account.**
+   Set billing budgets/alerts and use Firebase fictitious test numbers before enabling real SMS.
+7. Trigger a new Vercel deployment after setting environment variables.
+
+Phone login provides authentication only. It does not create a secure order database,
+customer profile store, payment processing, or access-controlled address storage.
+Do not take live payments with this demo; use Firestore security rules and a verified
+server-side order/payment flow for real commerce. Existing cart/address data is browser-only.

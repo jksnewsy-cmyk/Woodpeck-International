@@ -248,3 +248,19 @@
 .payment-option{position:relative}
 .payment-option>input[type=radio]{position:absolute;opacity:0;width:1px;height:1px;pointer-events:none}
 .payment-option:focus-within{outline:2px solid #c59b7f;outline-offset:2px}
+
+/* Firebase mobile OTP sign in */
+.login-panel{max-width:680px;margin:0 0 30px;padding:32px;background:#fffaf3;border:1px solid #eadccc;border-radius:12px;box-shadow:0 12px 40px #482a120b}
+.login-panel h2{font-family:'Playfair Display',Georgia,serif;font-size:32px;color:#462d1e;margin:6px 0 12px}
+.login-panel p{font-size:13px;color:#78685e;line-height:1.7}
+.login-form{display:flex;flex-direction:column;gap:13px;margin:20px 0}
+.login-form label{font-size:12px;font-weight:700;color:#684633}
+.login-form input{width:100%;padding:14px 16px;background:white;border:1px solid #d9c9b9;border-radius:6px;outline-offset:2px;font-size:15px;color:#322019}
+.login-phone{display:flex;align-items:center;gap:12px}
+.login-phone>span{padding:13px;background:#f3e8dd;border-radius:6px;color:#5a3521;font-weight:800}
+.login-form .store-btn{align-self:flex-start}
+.login-link{padding:4px 0;border:0;background:none;color:#885034;text-decoration:underline;font-size:12px}
+.login-error{font-size:12px;color:#b42318!important;background:#fff0ee;padding:10px 13px;border-radius:4px}
+.login-hint{font-size:11px!important}
+#firebase-recaptcha{min-height:1px}
+@media(max-width:600px){.login-panel{padding:22px 17px}.login-panel h2{font-size:27px}}
