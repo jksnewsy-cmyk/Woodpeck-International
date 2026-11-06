@@ -4,12 +4,16 @@ import {
   signInWithPhoneNumber, signOut
 } from 'firebase/auth';
 
-// Public Firebase web app settings (not service account keys). Never put admin credentials here.
+// Firebase web configuration is public by design. Overrides support future staging projects.
+// Security depends on Firebase Authentication, app verification and database rules,
+// not on hiding these client identifiers.
 const config = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
-  appId: import.meta.env.VITE_FIREBASE_APP_ID,
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || 'AIzaSyArHb47cGLDcWqfg2snf0EvunGJPXcYI1U',
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || 'woodpeck-international.firebaseapp.com',
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || 'woodpeck-international',
+  appId: import.meta.env.VITE_FIREBASE_APP_ID || '1:1050322816369:web:9aa54d1741fb750af63ad0',
+  storageBucket: 'woodpeck-international.firebasestorage.app',
+  messagingSenderId: '1050322816369',
 };
 export const firebaseReady = Object.values(config).every(Boolean);
 const auth = firebaseReady ? getAuth(initializeApp(config)) : null;

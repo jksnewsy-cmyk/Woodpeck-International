@@ -72,20 +72,17 @@ The workflow sets `GITHUB_PAGES=true` during the Vite build to use the project b
 
 ## Firebase phone OTP login (staged integration)
 
-The account page now includes a conditional Firebase phone OTP login UI.
-Without Firebase configuration it displays a polite setup-pending message, and does not send SMS or create accounts.
+The account page includes a Firebase phone OTP login UI with the public Web SDK configuration from the Woodpeck International Firebase app. This is a feature branch: it is **not live** until reviewed and merged.
 
 1. Create a **separate** Firebase project for Woodpeck International at https://console.firebase.google.com/ (do not reuse CricketStar/JKS Shoppe).
-2. Add a Web app; copy the *public* Web SDK config fields into Vercel Environment Variables:
-   `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN`, `VITE_FIREBASE_PROJECT_ID`, `VITE_FIREBASE_APP_ID`.
-   Use `.env.local` for local development and never commit it.
+2. Web app **Woodpeck Website** is registered. Its public config is already included in `assets/js/firebase-auth.js`. Vercel environment variables (`VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN`, `VITE_FIREBASE_PROJECT_ID`, `VITE_FIREBASE_APP_ID`) remain optional overrides for staging. Never put service-account secrets or private keys in this frontend.
 3. In Firebase Authentication -> Sign-in method, enable **Phone**.
 4. In Authentication -> Settings -> Authorized domains, add `www.woodpeckinternational.com`,
    `woodpeckinternational.com`, and `woodpeck-international.vercel.app`.
 5. Set an SMS region policy appropriate to where customers reside (e.g. India only); new projects may block all regions until configured.
 6. **Real SMS phone verification is billed per SMS and requires Firebase Blaze / a linked Cloud Billing account.**
    Set billing budgets/alerts and use Firebase fictitious test numbers before enabling real SMS.
-7. Trigger a new Vercel deployment after setting environment variables.
+7. Test the OTP flow on a trusted preview domain; merge the approved feature branch into `main` to deploy through Vercel. Do not go live until phone provider, authorized domains and SMS budget are confirmed.
 
 Phone login provides authentication only. It does not create a secure order database,
 customer profile store, payment processing, or access-controlled address storage.
