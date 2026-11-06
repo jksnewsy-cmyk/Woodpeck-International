@@ -27,7 +27,25 @@ async function determineAccess(user) {
   }catch(error){$('userUid').textContent=user.uid;setView('restricted');}
   checking=false;
 }
-onAuthStateChanged(auth,determineAccess);
+// Do not leave the administrator staring at a permanent loading message when
+// browser storage or Firebase Auth's initial state check is delayed.
+let authStateReceived = false;
+const authInitialTimeout = setTimeout(() => {
+  if (!authStateReceived) {
+    setView('authGate');
+    alertMessage('authInfo', 'Firebase sign-in is taking longer than expected. You can try signing in below or refresh this page.', true);
+  }
+}, 8500);
+onAuthStateChanged(auth, user => {
+  authStateReceived = true;
+  clearTimeout(authInitialTimeout);
+  void determineAccess(user);
+}, error => {
+  authStateReceived = true;
+  clearTimeout(authInitialTimeout);
+  setView('authGate');
+  alertMessage('authInfo', 'Unable to check Firebase login: ' + (error.code || error.message), true);
+});
 $('signOut').addEventListener('click',()=>logoutPhoneUser().catch(e=>alertMessage('authInfo',e.message,true)));
 $('retryAccess').addEventListener('click',()=>determineAccess(auth.currentUser));
 $('copyUid').addEventListener('click',()=>navigator.clipboard.writeText($('userUid').textContent).then(()=>$('copyUid').textContent='Copied'));
