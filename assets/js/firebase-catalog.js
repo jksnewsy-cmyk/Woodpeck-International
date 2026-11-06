@@ -20,8 +20,9 @@ export const CATEGORIES = [
   {id:'beds',name:'Beds'}, {id:'wardrobes',name:'Wardrobes'}, {id:'decor',name:'Home Decor'},
 ];
 
+const ADMIN_PHONES = new Set(['+918754344229', '+919659650202']);
 export async function checkAdmin(user) {
-  if (!user) return false;
+  if (!user || !ADMIN_PHONES.has(user.phoneNumber)) return false;
   const snapshot = await getDoc(doc(db,'admins', user.uid));
   return snapshot.exists() && snapshot.data().active === true;
 }

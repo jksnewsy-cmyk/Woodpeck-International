@@ -1,13 +1,17 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    function isAdmin() {
+    function approvedAdminPhone() {
       return request.auth != null &&
+        request.auth.token.phone_number in ['+918754344229', '+919659650202'];
+    }
+    function isAdmin() {
+      return approvedAdminPhone() &&
         exists(/databases/$(database)/documents/admins/$(request.auth.uid)) &&
         get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.active == true;
     }
     match /admins/{uid} {
-      allow get: if request.auth != null && request.auth.uid == uid;
+      allow get: if approvedAdminPhone() && request.auth.uid == uid;
       allow list, create, update, delete: if false;
     }
     match /products/{productId} {

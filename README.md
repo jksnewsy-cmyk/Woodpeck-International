@@ -123,3 +123,10 @@ The Vite project has a separate Firebase-connected admin dashboard to add, edit 
 - Authenticated non-admin users cannot write products. Firestore document `admins/{uid}` cannot be modified by client code.
 - **No real orders, payment processing, server-validated stock decrements or customer profile database** are included. Those require a separate backend implementation.
 - For a production release, set Firebase App Check, quota monitoring, storage cleanup for deleted records, duplicate SKU validation, and audit logging. ₹500 billing budget is an *alert*, not a hard cap.
+
+
+### Admin phone allowlist (November 2026)
+
+The **Admin Panel only** allows `+918754344229` and `+919659650202` to request an OTP via its UI. Customer OTP login is unaffected. An already-signed-in customer number outside this list is also rejected, even if there is a stray `admins/{uid}` entry. No admin access is granted just because the number is allowed: an `admins/{uid}` document with `active: true` is still required for *each* approved admin Firebase UID.
+
+**Critical deployment step:** The matching allowlist is present in **both** `firestore.rules` and `storage.rules`, using the Firebase-signed `request.auth.token.phone_number`, **not a client-supplied field**. A project owner MUST publish the updated rules from these files in the Firebase Console; GitHub / Vercel deployment alone does not apply Firebase rules. Until both rulesets are live, server-side restrictions are not fully in effect. This UI blocks OTP dispatch to other phone numbers but Firebase Authentication APIs may still be used outside our website; Firebase phone number sign-in itself cannot be restricted merely by web UI/Firestore rules. Use appropriate Firebase SMS anti-abuse quotas / Identity Platform controls if SMS abuse is a concern.

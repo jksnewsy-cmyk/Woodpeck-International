@@ -2,6 +2,11 @@ import { onAuthStateChanged } from 'firebase/auth';
 import { auth, checkAdmin, watchAllProducts, saveProduct, removeProduct, uploadProductImage } from './firebase-catalog.js';
 import { sendPhoneCode, confirmPhoneCode, logoutPhoneUser, resetPhoneSignIn } from './firebase-auth.js';
 
+// The admin screen never sends OTP to numbers outside this exact allowlist.
+// Firebase Firestore / Storage rules MUST enforce the same list server-side;
+// front-end validation alone cannot protect an API.
+const ADMIN_PHONES = new Set(['+918754344229', '+919659650202']);
+const canUseAdmin = user => Boolean(user && ADMIN_PHONES.has(user.phoneNumber));
 const $ = id => document.getElementById(id);
 const esc = s => String(s??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&quot;'}[ch]));
 let products = [], unsubscribe = null, currentUser = null, isAdmin = false, checking = false;
@@ -20,6 +25,12 @@ async function determineAccess(user) {
   isAdmin=false;currentUser=user;
   setView('loading');
   if(!user){setView('authGate');checking=false;return;}
+  if (!canUseAdmin(user)) {
+    setView('authGate');
+    alertMessage('authInfo', 'This mobile number is not authorised for Woodpeck Admin. Sign out and use an approved admin number.', true);
+    checking=false;
+    return;
+  }
   try {
     isAdmin=await checkAdmin(user);
     if(!isAdmin){$('userUid').textContent=user.uid;setView('restricted');}
@@ -51,13 +62,24 @@ $('retryAccess').addEventListener('click',()=>determineAccess(auth.currentUser))
 $('copyUid').addEventListener('click',()=>navigator.clipboard.writeText($('userUid').textContent).then(()=>$('copyUid').textContent='Copied'));
 $('adminPhoneForm').addEventListener('submit',async e=>{
   e.preventDefault();const number=$('adminPhone').value.trim();if(!/^[6-9]\d{9}$/.test(number))return;
+  if (!ADMIN_PHONES.has('+91'+number)) {
+    alertMessage('authInfo', 'This mobile number is not permitted to access the Admin Panel. OTP was not requested.', true);
+    return;
+  }
   const btn=e.target.querySelector('[type=submit]');btn.disabled=true;alertMessage('authInfo','Checking reCAPTCHA and sending SMS…');
   try{await sendPhoneCode(number);$('adminPhoneForm').hidden=true;$('adminOtpForm').hidden=false;alertMessage('authInfo','SMS code sent. Enter the 6-digit OTP.');}
   catch(error){alertMessage('authInfo',error.message,true)}finally{btn.disabled=false;}
 });
 $('adminOtpForm').addEventListener('submit',async e=>{
   e.preventDefault();const btn=e.target.querySelector('[type=submit]');btn.disabled=true;
-  try{await confirmPhoneCode($('adminOtp').value.trim());alertMessage('authInfo','Mobile verified. Checking admin access…');}
+  try{
+    const verified = await confirmPhoneCode($('adminOtp').value.trim());
+    if (!canUseAdmin(verified)) {
+      await logoutPhoneUser();
+      throw new Error('This verified mobile number is not authorised for administrator access.');
+    }
+    alertMessage('authInfo','Mobile verified. Checking admin access…');
+  }
   catch(error){alertMessage('authInfo',error.message,true)}finally{btn.disabled=false;}
 });
 $('changeNumber').addEventListener('click',()=>{resetPhoneSignIn();$('adminOtpForm').hidden=true;$('adminPhoneForm').hidden=false;alertMessage('authInfo','')});

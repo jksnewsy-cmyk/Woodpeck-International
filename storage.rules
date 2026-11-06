@@ -2,7 +2,9 @@ rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
     function isAdmin() {
-      return request.auth != null && firestore.exists(/databases/(default)/documents/admins/$(request.auth.uid)) &&
+      return request.auth != null &&
+        request.auth.token.phone_number in ['+918754344229', '+919659650202'] &&
+        firestore.exists(/databases/(default)/documents/admins/$(request.auth.uid)) &&
         firestore.get(/databases/(default)/documents/admins/$(request.auth.uid)).data.active == true;
     }
     match /products/{imageName} {
