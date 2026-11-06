@@ -246,4 +246,5 @@
   el('sortProducts').addEventListener('change', event => { sortOrder = event.target.value; renderProducts(); });
   el('year').textContent = new Date().getFullYear();
   renderCategories(); renderProducts(); renderBestSellers(); renderCart();
+  window.addEventListener('woodpeck-catalog-updated',()=>{renderProducts();renderBestSellers();renderCart();});
 })();

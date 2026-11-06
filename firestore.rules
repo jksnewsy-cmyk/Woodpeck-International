@@ -1,0 +1,31 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isAdmin() {
+      return request.auth != null &&
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.active == true;
+    }
+    match /admins/{uid} {
+      allow get: if request.auth != null && request.auth.uid == uid;
+      allow list, create, update, delete: if false;
+    }
+    match /products/{productId} {
+      allow get, list: if isAdmin() || resource.data.published == true;
+      allow create, update: if isAdmin() &&
+        request.resource.data.keys().hasOnly(['name','category','description','materials','tag','price','compareAt','stock','image','published','bestseller','updatedAt','createdAt']) &&
+        request.resource.data.name is string && request.resource.data.name.size() >= 2 && request.resource.data.name.size() <= 120 &&
+        request.resource.data.category in ['sofas','chairs','tables','beds','wardrobes','decor'] &&
+        request.resource.data.description is string && request.resource.data.description.size() <= 3000 &&
+        request.resource.data.materials is string && request.resource.data.materials.size() <= 300 &&
+        request.resource.data.tag is string && request.resource.data.tag.size() <= 60 &&
+        request.resource.data.price is number && request.resource.data.price >= 0 && request.resource.data.price <= 10000000 &&
+        request.resource.data.compareAt is number && request.resource.data.compareAt >= 0 && request.resource.data.compareAt <= 10000000 &&
+        request.resource.data.stock is int && request.resource.data.stock >= 0 && request.resource.data.stock <= 100000 &&
+        request.resource.data.image is string && request.resource.data.image.size() <= 2000 &&
+        request.resource.data.published is bool && request.resource.data.bestseller is bool;
+      allow delete: if isAdmin();
+    }
+    match /{document=**} { allow read, write: if false; }
+  }
+}

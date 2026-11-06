@@ -100,3 +100,26 @@ may create an account when a number first signs in. No phone-number directory or
 server-side restriction on existing/new phone numbers is enforced. Real SMS may cost money.
 A separate Firestore customer profile, admin approval workflow and order history are
 not yet included.
+
+## Product Admin Control Panel — secure setup required
+
+**Admin page:** `https://www.woodpeckinternational.com/admin.html`
+
+The Vite project has a separate Firebase-connected admin dashboard to add, edit and delete products, manage category, selling price, MRP, stock, description, listing visibility and photos. It signs in via Firebase Phone OTP, then authorizes only explicitly approved administrators by looking up `admins/{uid}`. Client code **cannot grant admin permissions**. Public catalog listings filter for `published == true`; drafts require administrator access.
+
+### Firebase setup checklist (do in this order)
+
+1. In Firebase Console, select **Woodpeck International** (`woodpeck-international`) -> **Firestore Database** -> **Create database**. Choose **Standard edition**, location appropriate for production, and **Production mode** (deny by default). Do not use test mode. Firestore has a billing impact on Blaze. Once created, open **Rules**, replace existing rules with the complete content of `firestore.rules`, click **Publish**. Alternatively deploy the same rules with `firebase deploy --only firestore:rules` after authenticating the Firebase CLI.
+2. In Firebase Console -> **Storage** -> **Get started**, choose an appropriate bucket location. Open **Rules**, replace with the complete content of `storage.rules`, click **Publish**. Alternatively `firebase deploy --only storage`. Uploading an image before this step will fail by design.
+3. Open `admin.html` and sign in with the intended administrator's *own* phone number and OTP. The unapproved account page displays its Firebase Auth **UID**. Copy it.
+4. In **Firestore Database -> Data**, manually create a collection named `admins`; create a document whose **document ID is that exact UID**. Add field `active` of **Boolean** type with value **true**. Only a trusted Firebase project owner should perform this privileged setup in Console. The rules explicitly prohibit clients from granting or editing admin permissions.
+5. Click **Check Access Again** on the unapproved account screen. The admin dashboard will then show, and products can be created. Never grant access to arbitrary customer UIDs or set `allow read, write: if true`.
+6. When adding a product, upload JPG, PNG or WebP photo (max 5 MB), fill name/category/MRP/price/stock/description, and select **Publish this product on website**. Draft items remain private to admins. Check `store.html#/shop` and the home page for the new product. The original six demo products stay visible until explicitly replaced.
+
+### Architecture / security
+
+- Firestore collection `products/{autoId}` stores product inventory; Storage `products/{uuid}.{jpg|png|webp}` stores photos. Admin permissions are tested in Firestore Rules **and** Storage Rules, not only hidden in UI.
+- Storefront reads **published** documents only and updates when Firestore snapshots change. Product photos use the Firebase Storage download URL. Both home page and Store listing display new published inventory alongside six clearly-labeled sample items.
+- Authenticated non-admin users cannot write products. Firestore document `admins/{uid}` cannot be modified by client code.
+- **No real orders, payment processing, server-validated stock decrements or customer profile database** are included. Those require a separate backend implementation.
+- For a production release, set Firebase App Check, quota monitoring, storage cleanup for deleted records, duplicate SKU validation, and audit logging. ₹500 billing budget is an *alert*, not a hard cap.

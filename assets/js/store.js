@@ -9,6 +9,7 @@ let authMode = 'login';
 let registrationName = '';
 
 import './products.js';
+import { watchPublishedProducts } from './firebase-catalog.js';
 
 const products = window.WOODPECK_PRODUCTS || [];
 const categories = window.WOODPECK_CATEGORIES || [];
@@ -17,7 +18,7 @@ const esc = (text) => String(text ?? '').replace(/[&<>"']/g, (ch) => ({'&':'&amp
 const money = (amount) => '₹' + Number(amount || 0).toLocaleString('en-IN');
 const item = (id) => products.find((p) => p.id === id);
 const categoryName = (id) => categories.find((c) => c.id === id)?.name || 'Furniture';
-const asset = (path) => import.meta.env.BASE_URL + String(path).replace(/^\/+/, '');
+const asset = (path) => /^https:\/\//i.test(String(path)) ? String(path) : import.meta.env.BASE_URL + String(path).replace(/^\/+/, '');
 const read = (key, fallback) => { try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch { return fallback; } };
 const state = {
   cart: read('woodpeck-demo-cart', {}),
@@ -133,7 +134,7 @@ function productDetail(id) {
         <h1>${esc(p.name)}</h1><div class="store-detail-rating">✦ Handpicked furniture for your home</div>
         <div class="store-detail-price"><strong>${money(p.price)}</strong><del>${money(p.compareAt)}</del>${saving?`<span class="store-discount">${saving}% OFF</span>`:''}</div>
         <p class="product-description">${esc(p.description)}</p>
-        <div class="detail-meta"><div><span>Material / Finish</span><strong>${esc(p.materials)}</strong></div><div><span>Availability</span><strong>Confirm with seller</strong></div><div><span>Delivery</span><strong>Calculated after shipping setup</strong></div></div>
+        <div class="detail-meta"><div><span>Material / Finish</span><strong>${esc(p.materials)}</strong></div><div><span>Availability</span><strong>${typeof p.stock==='number'?(p.stock>0?`${p.stock} available`:'Out of stock'):'Confirm with seller'}</strong></div><div><span>Delivery</span><strong>Calculated after shipping setup</strong></div></div>
         <div class="store-detail-actions"><button class="store-btn primary" data-add="${p.id}">Add to Cart</button><button class="store-btn secondary" data-buy="${p.id}">Buy Now</button><button class="store-btn ghost" data-fav="${p.id}">${loved?'♥ Saved':'♡ Wishlist'}</button></div>
         <div class="detail-caution">Demo product: photo, materials, discount and price must be approved by Woodpeck International.</div>
       </div>
@@ -142,7 +143,7 @@ function productDetail(id) {
   </div>`;
 }
 function cartPage() {
-  const lines = Object.entries(state.cart);
+  const lines = Object.entries(state.cart).filter(([id])=>!!item(id));
   return `<div class="container store-page">${breadcrumb(['Shopping Cart'])}${head('YOUR SELECTION','Shopping Cart','Review your favorite furniture before checkout.')}
     ${lines.length?`<div class="store-checkout-layout"><div class="store-cart-list">
       ${lines.map(([id,qty])=>{const p=item(id);return `<article class="store-cart-item">
@@ -433,4 +434,19 @@ document.addEventListener('click', async event => {
 });
 onLoginChange(() => {
   if (window.location.hash.startsWith('#/account')) render();
+});
+
+// Cloud catalog updates are published by authorised admins and loaded read-only for customers.
+// A blank/unavailable Firestore collection leaves the existing clearly-labeled demo products visible.
+const initialDemoProducts = products.slice();
+watchPublishedProducts(cloudItems => {
+  const validated = cloudItems.filter(p => p && typeof p.id === 'string' && typeof p.name === 'string' &&
+    typeof p.image === 'string' && p.image.startsWith('https://') &&
+    Number.isFinite(p.price) && p.price >= 0);
+  const cloudIds = new Set(validated.map(p=>p.id));
+  products.splice(0,products.length,...validated,...initialDemoProducts.filter(p=>!cloudIds.has(p.id)));
+  const route=location.hash.replace(/^#\/?/,'').split('/')[0];
+  if (['shop','product','wishlist','cart'].includes(route) || !route) render();
+}, error => {
+  console.warn('Cloud product catalog is not available; displaying demo inventory.', error.code || error.message);
 });

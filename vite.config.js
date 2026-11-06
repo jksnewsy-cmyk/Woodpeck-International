@@ -8,6 +8,7 @@ export default defineConfig({
       input: {
         home: resolve(process.cwd(), 'index.html'),
         store: resolve(process.cwd(), 'store.html'),
+        admin: resolve(process.cwd(), 'admin.html'),
       },
     },
   },
