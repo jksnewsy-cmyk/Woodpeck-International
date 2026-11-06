@@ -1,3 +1,11 @@
+import {
+  firebaseReady, signedInUser, onLoginChange,
+  sendPhoneCode, confirmPhoneCode, logoutPhoneUser,
+  resetPhoneSignIn, clearRecaptcha
+} from './firebase-auth.js';
+let phoneLoginStep = 'number';
+let lastLoginPhone = '';
+
 import './products.js';
 
 const products = window.WOODPECK_PRODUCTS || [];
@@ -212,13 +220,21 @@ function paymentPage() {
     </section>${cartSummary('',null)}</div></div>`;
 }
 function accountPage() {
+  const loginSection = !firebaseReady
+    ? `<div class="login-panel"><p class="eyebrow">SECURE CUSTOMER LOGIN</p><h2>Sign in with your mobile</h2><p>Mobile OTP login is being configured for Woodpeck International. Please check back once Firebase setup is complete.</p><p class="login-hint">Payments and orders are not yet enabled.</p></div>`
+    : signedInUser
+    ? `<div class="login-panel"><p class="eyebrow">SIGNED IN</p><h2>Welcome to Woodpeck</h2><p>Your verified mobile: <strong>${esc(signedInUser.phoneNumber || 'Verified customer')}</strong></p><button type="button" class="store-btn ghost" id="firebaseLogout">Sign Out</button><p class="login-hint">Cart, wishlist and addresses are still stored only in this browser. There are no live orders yet.</p></div>`
+    : phoneLoginStep === 'code'
+    ? `<div class="login-panel"><p class="eyebrow">VERIFY YOUR NUMBER</p><h2>Enter your OTP</h2><p>Enter the 6-digit SMS code sent to +91 ${esc(lastLoginPhone.slice(0,2) + '••••••' + lastLoginPhone.slice(-2))}.</p><form id="firebaseCodeForm" class="login-form"><label for="firebaseOtp">Verification code</label><input type="text" id="firebaseOtp" name="otp" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" minlength="6" maxlength="6" required placeholder="6-digit OTP"/><button type="submit" class="store-btn primary">Verify & Sign In</button></form><button type="button" class="login-link" id="firebaseGoBack">Change mobile number</button><p id="loginError" class="login-error" role="alert" hidden></p></div>`
+    : `<div class="login-panel"><p class="eyebrow">SECURE CUSTOMER LOGIN</p><h2>Login with mobile OTP</h2><p>No password required. Enter your mobile number and verify with a one-time SMS code.</p><form id="firebasePhoneForm" class="login-form"><label for="firebasePhone">Mobile Number</label><div class="login-phone"><span>+91</span><input type="tel" id="firebasePhone" name="phone" inputmode="numeric" autocomplete="tel-national" pattern="[6-9][0-9]{9}" minlength="10" maxlength="10" required placeholder="10-digit mobile number"/></div><div id="firebase-recaptcha"></div><button type="submit" class="store-btn primary">Send OTP</button></form><p id="loginError" class="login-error" role="alert" hidden></p><p class="login-hint">You may receive an SMS. Your phone number is processed by Firebase/Google for verification and fraud prevention.</p></div>`;
   return `<div class="container store-page">${breadcrumb(['My Account'])}${head('HELLO THERE','My Account','Your Woodpeck International shopping space.')}
+   ${loginSection}
    <div class="account-links">
      <a href="#/wishlist"><span>♡</span><strong>My Wishlist</strong><small>See your saved furniture</small><b>→</b></a>
      <a href="#/cart"><span>▤</span><strong>My Cart</strong><small>View selected furniture</small><b>→</b></a>
      <a href="#/address"><span>⌂</span><strong>Saved Addresses</strong><small>Delivery address book on this device</small><b>→</b></a>
      <a href="#/contact"><span>✉</span><strong>Contact & Policies</strong><small>Business information and policies</small><b>→</b></a>
-   </div><div class="account-alert"><strong>Customer Login Coming Next</strong><p>OTP authentication, customer order history, and live order tracking will need a secure database and authentication service. This preview does not create customer accounts.</p></div>
+   </div><div class="account-alert"><strong>Checkout is a demo</strong><p>Customer order history and live order tracking still require a secure backend. This website does not accept payments or create real orders.</p></div>
   </div>`;
 }
 function contactPage() {
@@ -245,6 +261,7 @@ function render() {
     case 'contact': body=contactPage();break;
     default: body=`<div class="container store-page">${empty('Page not found','Explore our furniture collection.')}</div>`;
   }
+  clearRecaptcha();
   $('page').innerHTML=body;
   document.title = (kind.charAt(0).toUpperCase()+kind.slice(1))+' | Woodpeck International';
   updateBadges();
@@ -325,3 +342,64 @@ window.addEventListener('storage',(event)=>{
 $('storeYear').textContent=new Date().getFullYear();
 if(!location.hash)location.replace('#/shop');
 render();
+
+function displayLoginError(error) {
+  const el = $('loginError');
+  if (!el) return;
+  const code = error?.code || '';
+  const safeMessage = ({
+    'auth/invalid-phone-number': 'Enter a valid mobile number.',
+    'auth/invalid-verification-code': 'Incorrect OTP. Check the SMS and retry.',
+    'auth/code-expired': 'Your OTP has expired. Request a new code.',
+    'auth/too-many-requests': 'Too many attempts. Please try again later.',
+    'auth/captcha-check-failed': 'Security verification failed. Please retry.',
+    'auth/billing-not-enabled': 'SMS OTP requires a Firebase billing-enabled project.',
+    'auth/operation-not-allowed': 'Phone login is not enabled in Firebase Console.',
+    'auth/unauthorized-domain': 'This website domain is not yet authorized in Firebase.',
+  })[code] || error?.message || 'Unable to sign in. Please retry.';
+  el.textContent = safeMessage;
+  el.hidden = false;
+}
+document.addEventListener('submit', async event => {
+  const form = event.target;
+  if (!['firebasePhoneForm','firebaseCodeForm'].includes(form.id)) return;
+  event.preventDefault();
+  if (!form.reportValidity()) return;
+  const btn = form.querySelector('[type="submit"]');
+  btn.disabled = true;
+  try {
+    if (form.id === 'firebasePhoneForm') {
+      const phone = form.elements.phone.value.trim();
+      await sendPhoneCode(phone);
+      lastLoginPhone = phone;
+      phoneLoginStep = 'code';
+    } else {
+      await confirmPhoneCode(form.elements.otp.value.trim());
+      phoneLoginStep = 'number';
+    }
+    render();
+  } catch (error) {
+    displayLoginError(error);
+  } finally {
+    if (btn.isConnected) btn.disabled = false;
+  }
+});
+document.addEventListener('click', async event => {
+  if (event.target.closest('#firebaseGoBack')) {
+    resetPhoneSignIn();
+    phoneLoginStep = 'number';
+    render();
+  }
+  if (event.target.closest('#firebaseLogout')) {
+    try {
+      await logoutPhoneUser();
+      phoneLoginStep = 'number';
+      render();
+    } catch (error) {
+      toast('Unable to sign out. Please retry.');
+    }
+  }
+});
+onLoginChange(() => {
+  if (window.location.hash.startsWith('#/account')) render();
+});
