@@ -1,0 +1,16 @@
+{
+  "name": "woodpeck-international",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Woodpeck International furniture e-commerce frontend prototype",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1 --port 5173 --open",
+    "build": "vite build",
+    "preview": "vite preview --host 127.0.0.1 --port 4173",
+    "postbuild": "mkdir -p dist/assets/images && cp -R assets/images/. dist/assets/images/"
+  },
+  "devDependencies": {
+    "vite": "^7.0.0"
+  }
+}

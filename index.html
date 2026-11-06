@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#faf6f0" />
+  <meta name="description" content="Woodpeck International — thoughtfully designed wooden furniture for beautiful homes." />
+  <title>Woodpeck International | Premium Wood Furniture</title>
+  <link rel="icon" href="assets/images/woodpeck-favicon.png" type="image/png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=Playfair+Display:wght@500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="assets/css/styles.css" />
+  <script type="module" src="/assets/js/main.js"></script>
+</head>
+<body>
+  <div class="announcement"><span>Furniture that feels like home.</span><span class="announcement-dot">✦</span><span>Beautifully crafted, thoughtfully chosen.</span></div>
+  <header class="site-header" id="top">
+    <div class="header-main container">
+      <button class="icon-button menu-toggle" id="menuToggle" type="button" aria-label="Open menu" aria-expanded="false"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+      <a href="#top" class="brand" id="brandLink" aria-label="Woodpeck International home">
+        <img src="assets/images/woodpeck-brandmark.webp" alt="" class="brand-mark" />
+        <span class="brand-type"><strong>Woodpeck</strong><small>INTERNATIONAL</small></span>
+      </a>
+      <div class="desktop-search search-field">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.8" cy="10.8" r="7.1"/><path d="m16.2 16.2 5 5"/></svg>
+        <input id="desktopSearch" type="search" placeholder="Search sofas, tables, beds and more…" aria-label="Search furniture" autocomplete="off" />
+        <span class="search-shortcut">SEARCH</span>
+      </div>
+      <div class="header-actions">
+        <button class="icon-button heart-header" type="button" id="wishlistHeader" aria-label="View wishlist"><svg viewBox="0 0 24 24"><path d="M20.8 8.4c0 4.5-8.8 10.2-8.8 10.2S3.2 12.9 3.2 8.4a4.9 4.9 0 0 1 8.8-2.9 4.9 4.9 0 0 1 8.8 2.9Z"/></svg><span class="action-badge" id="wishlistCount" hidden>0</span></button>
+        <button class="icon-button" id="accountBtn" type="button" aria-label="About account"><svg viewBox="0 0 24 24"><circle cx="12" cy="7.5" r="3.5"/><path d="M4.7 20c.5-4 3-6 7.3-6s6.8 2 7.3 6"/></svg></button>
+        <button class="icon-button cart-header" id="cartHeader" type="button" aria-label="Open shopping bag"><svg viewBox="0 0 24 24"><path d="M3 4h2l2.2 11.5h11.5L21 7H6M10 20h.01M18 20h.01"/></svg><span class="action-badge" id="cartCount" hidden>0</span></button>
+      </div>
+    </div>
+    <div class="mobile-search-row container"><div class="search-field"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.8" cy="10.8" r="7.1"/><path d="m16.2 16.2 5 5"/></svg><input type="search" id="mobileSearch" placeholder="Search furniture for your home…" aria-label="Search furniture" /></div></div>
+    <nav class="desktop-nav container" aria-label="Main navigation"><a href="#categories">Shop by Category</a><a href="#featured">All Furniture</a><a href="#bestsellers">Best Sellers</a><a href="#story">Our Craft</a><a href="#contact">Contact</a><span class="nav-note">MADE FOR BEAUTIFUL LIVING</span></nav>
+    <nav class="mobile-menu" id="mobileMenu" aria-label="Mobile menu" hidden><a href="#categories">Shop by Category</a><a href="#featured">All Furniture</a><a href="#bestsellers">Best Sellers</a><a href="#story">Our Craft</a><a href="#contact">Contact</a></nav>
+  </header>
+
+  <main>
+    <section class="hero-shell container" aria-label="Featured collection">
+      <div class="hero">
+        <div class="hero-content"><p class="eyebrow">WOODPECK INTERNATIONAL <span>— THE HOME EDIT</span></p><h1>Natural beauty.<br/><em>Everyday living.</em></h1><p class="hero-summary">Timeless wooden furniture that turns every corner into your favorite place.</p><a class="btn btn-primary" href="#featured">Explore Collection <span aria-hidden="true">↗</span></a><div class="hero-proof"><span class="mini-stroke"></span> DESIGNED FOR COMFORT & CRAFT</div></div>
+        <div class="hero-visual" role="img" aria-label="Warm living space with wooden sofa, timber coffee table, and natural decor"><div class="image-overlay"></div><div class="hero-chip"><span>THE WOOD COLLECTION</span><strong>Live beautifully.</strong></div></div>
+      </div>
+      <div class="hero-footer"><span>01 <span class="thin-line"></span> A MORE NATURAL WAY TO LIVE</span><span>TIMELESS. DURABLE. ELEGANT.</span></div>
+    </section>
+
+    <section class="categories-section section container" id="categories"><div class="section-heading"><div><p class="eyebrow">FIND YOUR FAVORITES</p><h2>Shop by category</h2></div><button class="text-link" type="button" id="showAllCats">View all furniture <span>↗</span></button></div><div class="category-grid" id="categoryGrid" aria-label="Furniture categories"></div></section>
+
+    <section class="section product-section container" id="featured"><div class="section-heading"><div><p class="eyebrow">CURATED FOR YOUR SPACE</p><h2>Featured furniture</h2></div><div class="heading-end"><span class="results-label" id="resultsLabel">6 thoughtfully selected pieces</span><label class="sort-wrap">Sort <select id="sortProducts" aria-label="Sort products"><option value="featured">Featured</option><option value="price-low">Price: Low to High</option><option value="price-high">Price: High to Low</option><option value="name">Name: A–Z</option></select></label></div></div><div class="active-filter" id="activeFilter" hidden><span id="filterText"></span><button type="button" id="clearFilter">Clear filter ×</button></div><div class="product-grid" id="featuredGrid"></div><div class="empty-state" id="emptyState" hidden><span>⌕</span><h3>No furniture found</h3><p>Try another search or explore all products.</p><button class="btn btn-outline" id="resetSearch" type="button">Show all furniture</button></div></section>
+
+    <section class="promotion container" aria-label="Special collection"><div class="promo-inner"><span class="promo-doodle">✦</span><div><p class="eyebrow">ELEVATE EVERY ROOM</p><h2>Good wood.<br/><em>Great living.</em></h2><p>Thoughtfully selected furniture, built to make your home feel yours.</p><a href="#bestsellers" class="btn btn-cream">Discover favorites <span>↗</span></a></div><div class="promo-photo" aria-hidden="true"></div></div></section>
+
+    <section class="section container" id="bestsellers"><div class="section-heading"><div><p class="eyebrow">LOVED FOR A REASON</p><h2>Best-selling styles</h2></div><button class="text-link" type="button" id="seeBestSellers">See our favorites <span>↗</span></button></div><div class="best-grid" id="bestGrid"></div></section>
+
+    <section class="story container" id="story"><div class="story-image"><img src="assets/images/hero-room.jpg" alt="Wooden sofa and warm living room interior" loading="lazy"/></div><div class="story-copy"><p class="eyebrow">THE WOODPECK WAY</p><h2>Made for the moments <em>that matter.</em></h2><p>We believe great furniture should look beautiful, feel comfortable and make every day a little better. Explore natural textures, warm finishes, and designs you’ll love to live with.</p><div class="story-values"><div><span>01</span> Timeless designs</div><div><span>02</span> Natural warmth</div><div><span>03</span> Everyday comfort</div></div><a href="#featured" class="btn btn-outline">Explore our furniture <span>↗</span></a></div></section>
+
+    <section class="features container" aria-label="Store highlights"><div><svg viewBox="0 0 24 24"><path d="M2 7h12v10H2zM14 10h4l4 4v3h-8M6 20a2 2 0 1 0 0-4 2 2 0 0 0 0 4ZM18 20a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z"/></svg><strong>Delivery options</strong><span>Confirmed at checkout</span></div><div><svg viewBox="0 0 24 24"><path d="m12 2 8 4.5V17L12 22 4 17V6.5L12 2Z M4 6.5l8 5 8-5M12 11.5V22"/></svg><strong>Furniture collections</strong><span>For every room and space</span></div><div><svg viewBox="0 0 24 24"><path d="M12 21s-9-5.5-9-11.5a5 5 0 0 1 9-3 5 5 0 0 1 9 3C21 15.5 12 21 12 21Z"/></svg><strong>Thoughtful selection</strong><span>Designed for everyday living</span></div></section>
+  </main>
+
+  <footer id="contact" class="footer"><div class="container footer-grid"><div><a href="#top" class="brand footer-brand" aria-label="Woodpeck International home"><img src="assets/images/woodpeck-logo.webp" class="brand-mark" alt="Woodpeck International Global Wood Solutions"/></a><p>Thoughtfully chosen wood furniture for beautiful homes.</p><p class="footer-disclaimer">Product prices and offers on this demo are examples. Actual inventory, delivery policy and contact details will be updated before launch.</p></div><div><h3>Explore</h3><a href="#categories">Categories</a><a href="#featured">Shop furniture</a><a href="#bestsellers">Best sellers</a><a href="#story">Our story</a></div><div><h3>Customer care</h3><a href="#contact" id="footerContact">Contact details coming soon</a><a href="#contact">Shipping & returns — to be configured</a><a href="#contact">Privacy & terms — to be configured</a></div><div><h3>Woodpeck International</h3><p>Design preview for client approval.</p><span class="footer-label">WOODEN FURNITURE • HOME LIVING</span></div></div><div class="container footer-bottom"><span>© <span id="year"></span> Woodpeck International. Demo website.</span><span>DESIGNED WITH CARE</span></div></footer>
+
+  <nav class="mobile-bottom-nav" aria-label="Mobile quick navigation"><a href="#top" class="is-active" data-mobile-tab="home"><svg viewBox="0 0 24 24"><path d="m3 11 9-8 9 8v10h-6v-7H9v7H3z"/></svg><span>Home</span></a><a href="#categories" data-mobile-tab="categories"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg><span>Categories</span></a><button type="button" id="wishlistMobile" data-mobile-tab="wishlist"><svg viewBox="0 0 24 24"><path d="M20.8 8.4c0 4.5-8.8 10.2-8.8 10.2S3.2 12.9 3.2 8.4a4.9 4.9 0 0 1 8.8-2.9 4.9 4.9 0 0 1 8.8 2.9Z"/></svg><span>Wishlist</span></button><button type="button" id="cartMobile" data-mobile-tab="cart"><svg viewBox="0 0 24 24"><path d="M3 4h2l2.2 11.5h11.5L21 7H6M10 20h.01M18 20h.01"/></svg><span>Cart</span><i class="bottom-count" id="mobileCartCount" hidden>0</i></button><button type="button" id="accountMobile" data-mobile-tab="account"><svg viewBox="0 0 24 24"><circle cx="12" cy="7.5" r="3.5"/><path d="M4.7 20c.5-4 3-6 7.3-6s6.8 2 7.3 6"/></svg><span>Account</span></button></nav>
+
+  <div class="overlay" id="overlay" hidden></div>
+  <aside class="cart-drawer" id="cartDrawer" role="dialog" aria-modal="true" aria-labelledby="cartHeading" hidden><div class="drawer-head"><div><p class="eyebrow">YOUR SELECTION</p><h2 id="cartHeading">Shopping bag <span id="bagCountLabel">(0)</span></h2></div><button class="icon-button drawer-close" data-close="drawer" aria-label="Close cart">×</button></div><div class="drawer-items" id="cartItems"></div><div class="drawer-footer"><div class="subtotal-row"><span>Subtotal</span><strong id="subtotal">₹0</strong></div><p>Delivery charges will be confirmed at checkout. Demo items only.</p><button type="button" class="btn btn-primary full" id="checkoutBtn">Review checkout <span>↗</span></button><button type="button" class="text-link centered" data-close="drawer">Continue shopping</button></div></aside>
+
+  <div class="product-modal modal" id="productModal" role="dialog" aria-modal="true" aria-labelledby="detailTitle" hidden><button class="icon-button modal-close" aria-label="Close product details" data-close="modal">×</button><div id="productModalBody"></div></div>
+
+  <div class="checkout-modal modal" id="checkoutModal" role="dialog" aria-modal="true" aria-labelledby="checkoutHeading" hidden><button class="icon-button modal-close" aria-label="Close checkout" data-close="modal">×</button><div class="checkout-content"><p class="eyebrow">ORDER PREVIEW</p><h2 id="checkoutHeading">Checkout details</h2><p class="demo-notice">Prototype only: no real order, payment or personal data is sent anywhere.</p><form id="checkoutForm"><div class="form-grid"><label>Full name<input id="fullName" name="name" required minlength="2" placeholder="Your name" autocomplete="name"/></label><label>Mobile number<input id="phoneNumber" name="phone" required type="tel" pattern="[0-9]{10}" placeholder="10-digit mobile number" autocomplete="tel"/></label></div><label>Delivery address<textarea id="deliveryAddress" name="address" required rows="3" placeholder="House / street / town / PIN code" autocomplete="street-address"></textarea></label><div class="checkout-total">Sample order subtotal <strong id="checkoutSubtotal">₹0</strong></div><p class="muted">Payment method and delivery are not yet connected to a live service.</p><button class="btn btn-primary full" type="submit">Preview order <span>↗</span></button></form><div id="orderPreview" hidden></div></div></div>
+
+  <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+</body>
+</html>
