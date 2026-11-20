@@ -6,7 +6,7 @@ const db = admin.firestore();
 const REGION = "asia-south1";
 const MERCHANT_UPI = "woodpeckinternational01@tmb";
 const MERCHANT_NAME = "WOODPECK INTERNATIONAL";
-const opts = {region:REGION, maxInstances:10, memory:"256MiB", enforceAppCheck:false};
+const opts = {region:REGION, maxInstances:10, memory:"256MiB", enforceAppCheck:false, invoker:"public"};
 const err = (code,msg) => { throw new HttpsError(code,msg); };
 const validNum = (n,min,max) => Number.isSafeInteger(n)&&n>=min&&n<=max;
 async function authorizedAdmin(request){
