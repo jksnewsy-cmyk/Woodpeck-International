@@ -323,3 +323,18 @@ body.auth-view .store-main{min-height:100dvh}
 @media(min-width:960px){.auth-fullscreen{background-size:cover}.auth-scene{height:325px}.auth-card{margin-top:-6px}}
 @media(max-width:600px){.auth-fullscreen{padding:0 10px 22px;background-attachment:scroll;background-position:center top}.auth-scene{height:260px}.auth-brand img{height:95px;width:115px}.auth-brand-name{font-size:49px}.auth-brand-sub{font-size:11px;letter-spacing:4px}.auth-brand p{font-size:13px}.auth-back{top:11px;font-size:10px;padding:7px 10px}.auth-card{border-radius:46% 46% 25px 25px / 25px 25px 25px 25px;padding-top:33px}.auth-card-content{padding:0 21px 36px}.auth-card .auth-tabs{margin-bottom:23px;gap:6px}.auth-card h1{font-size:30px}.auth-card h2{font-size:19px}.auth-illustration{height:115px;width:130px}.auth-illustration .auth-main-icon{height:106px}.auth-card-content>p:not(.auth-join):not(.login-error){font-size:12px}.auth-form .login-phone>span{padding:0 13px}.auth-form .login-phone svg{width:21px;margin:0 5px 0 9px}.auth-form input{font-size:12px}.auth-form .login-phone input{font-size:12px}.auth-submit{min-height:52px;font-size:17px}.auth-switch{font-size:14px;min-height:50px}.auth-card .auth-benefits{margin-top:25px}.auth-benefits>div{font-size:12px}.auth-wood-wave{height:36px}}
 @media(max-width:370px){.auth-brand-name{font-size:44px}.auth-scene{height:245px}.auth-card-content{padding-inline:15px}.auth-card .auth-tabs button{font-size:10px}.auth-card h1{font-size:27px}.auth-form .login-phone>span{padding:0 9px}}
+
+.upi-live-box{background:#fff;border:1px solid #dfc9b8;border-radius:12px;padding:25px}
+.upi-heading h2{font:600 24px 'Playfair Display',Georgia,serif;color:#583421}
+.upi-heading p{overflow-wrap:anywhere;font-size:12px;color:#6d594b}
+.upi-qr-wrap{text-align:center;padding:16px 0}
+.upi-qr-wrap img{width:260px;height:260px;max-width:100%;object-fit:contain}
+.upi-qr-wrap p,.upi-id{text-align:center;color:#654b3b}
+.upi-id{padding:12px;background:#f9efe5;border-radius:8px;overflow-wrap:anywhere}
+.upi-pay-action{display:block;text-align:center;margin:18px 0}
+.payment-safety{font-size:12px;color:#8c6e5d;line-height:1.7}
+.upi-reference-form{display:flex;flex-direction:column;gap:12px;margin:22px 0}
+.upi-reference-form label{font-weight:700;font-size:12px}
+.upi-reference-form input{padding:13px;border:1px solid #d5c2ae;border-radius:6px;font-size:15px;max-width:420px}
+.upi-live-box button{margin:5px}
+#upiMessage{font-size:13px;color:#a33d30;margin:8px 0;line-height:1.6}

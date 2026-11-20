@@ -1,3 +1,4 @@
+import {watchUpiOrders,reviewUpiOrder,getCheckoutSettings,updateCheckoutSettings} from './checkout-api.js';
 import { onAuthStateChanged } from 'firebase/auth';
 import { auth, checkAdmin, watchAllProducts, saveProduct, removeProduct, uploadProductImage } from './firebase-catalog.js';
 import { sendPhoneCode, confirmPhoneCode, logoutPhoneUser, resetPhoneSignIn } from './firebase-auth.js';
@@ -9,7 +10,7 @@ const ADMIN_PHONES = new Set(['+918754344229', '+919659650202']);
 const canUseAdmin = user => Boolean(user && ADMIN_PHONES.has(user.phoneNumber));
 const $ = id => document.getElementById(id);
 const esc = s => String(s??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&quot;'}[ch]));
-let products = [], unsubscribe = null, currentUser = null, isAdmin = false, checking = false;
+let products = [], unsubscribe = null, orderUnsubscribe = null, currentUser = null, isAdmin = false, checking = false;
 const form = $('productForm');
 const setView = name => {
   ['loading','authGate','restricted','dashboard'].forEach(id=>$(id).hidden=id!==name);
@@ -22,6 +23,7 @@ async function determineAccess(user) {
   if(checking) return;
   checking=true;
   if (unsubscribe){unsubscribe();unsubscribe=null;}
+  if(orderUnsubscribe){orderUnsubscribe();orderUnsubscribe=null;}
   isAdmin=false;currentUser=user;
   setView('loading');
   if(!user){setView('authGate');checking=false;return;}
@@ -34,7 +36,12 @@ async function determineAccess(user) {
   try {
     isAdmin=await checkAdmin(user);
     if(!isAdmin){$('userUid').textContent=user.uid;setView('restricted');}
-    else {setView('dashboard');unsubscribe=watchAllProducts(data=>{products=data;displayProducts();},e=>alertMessage('status',`Cannot access products: ${e.code||e.message}. Check Firestore Security Rules.`,true));}
+    else {
+      setView('dashboard');
+      unsubscribe=watchAllProducts(data=>{products=data;displayProducts();},e=>alertMessage('status',`Cannot access products: ${e.code||e.message}. Check Firestore Security Rules.`,true));
+      orderUnsubscribe=watchUpiOrders(displayUpiOrders,e=>alertMessage('orderStatus','Could not access orders: '+(e.code||e.message),true));
+      void loadCheckoutSettings();
+    }
   }catch(error){$('userUid').textContent=user.uid;setView('restricted');}
   checking=false;
 }
@@ -135,4 +142,66 @@ form.addEventListener('submit',async e=>{
     await saveProduct(data,$('editingId').value||undefined);
     closeDialog();alertMessage('status','Product saved successfully. Published products appear in the storefront.');
   }catch(err){alertMessage('formError',err.message,true)}finally{btn.disabled=false;}
+});
+
+// Merchant settings must be explicitly confirmed and saved before the
+// server-side checkout function permits even one real payment request.
+async function loadCheckoutSettings(){
+  try{
+    const data=await getCheckoutSettings();
+    $('shippingCharge').value=data?.shippingCharge??0;
+    $('checkoutEnabled').checked=data?.enabled===true;
+    // A fresh confirmation is required at each save, never pre-check it.
+    $('taxConfirmed').checked=false;
+    $('merchantConfirmed').checked=false;
+    $('policyConfirmed').checked=false;
+    alertMessage('checkoutSettingsStatus', data?.enabled?'Live UPI checkout enabled with merchant settings.':'Live checkout is disabled until merchant approval.');
+  }catch(e){alertMessage('checkoutSettingsStatus','Settings unavailable: '+(e.code||e.message),true);}
+}
+$('checkoutSettingsForm').addEventListener('submit',async e=>{
+  e.preventDefault();
+  if(!isAdmin||!auth.currentUser)return;
+  const input=Number($('shippingCharge').value);
+  if(!Number.isSafeInteger(input)||input<0||input>100000){
+    alertMessage('checkoutSettingsStatus','Shipping charge must be a whole number between ₹0 and ₹100,000.',true);return;
+  }
+  const enabled=$('checkoutEnabled').checked;
+  if(enabled&&(!($('merchantConfirmed').checked&&$('taxConfirmed').checked&&$('policyConfirmed').checked))){
+    alertMessage('checkoutSettingsStatus','Confirm the business bank, tax, shipping and approved policies before enabling checkout.',true);return;
+  }
+  if(enabled&&!confirm('Enable payment QR for real customer orders? You must verify UPI receipts manually and honor the shown final total, tax and shipping charges.'))return;
+  const btn=e.target.querySelector('button[type=submit]');btn.disabled=true;
+  try{
+    await updateCheckoutSettings({shippingCharge:input,enabled});
+    alertMessage('checkoutSettingsStatus',enabled?'UPI checkout enabled. Verify every payment in the bank before approving.':'UPI checkout disabled.');
+    $('taxConfirmed').checked=false;$('merchantConfirmed').checked=false;$('policyConfirmed').checked=false;
+  }catch(err){alertMessage('checkoutSettingsStatus','Unable to save: '+(err.code||err.message),true);}
+  finally{btn.disabled=false;}
+});
+function displayUpiOrders(orders){
+  const table=$('upiOrdersTable');
+  if(!orders.length){table.innerHTML='<tr><td colspan="5">No real UPI orders yet.</td></tr>';return;}
+  table.innerHTML=orders.map(o=>{
+    const pending=o.status==='verification_pending';
+    return '<tr><td><strong>'+esc(o.id)+'</strong><br/>'+esc(o.address?.name||'')+' · '+esc(o.customerPhone||'')+
+      '<br/>PIN '+esc(o.address?.pin||'')+'</td><td>₹'+Number(o.total).toLocaleString('en-IN')+
+      '</td><td>'+esc(o.utr||'Not submitted')+'</td><td>'+esc(o.status)+
+      '</td><td>'+(pending?'<button data-review-id="'+esc(o.id)+'" data-review-status="paid">Mark PAID after bank check</button> '+
+      '<button data-review-id="'+esc(o.id)+'" data-review-status="rejected">Reject</button>':'—')+'</td></tr>';
+  }).join('');
+}
+$('upiOrdersTable').addEventListener('click',async e=>{
+  const btn=e.target.closest('[data-review-id]');
+  if(!btn||!isAdmin)return;
+  const orderId=btn.dataset.reviewId,status=btn.dataset.reviewStatus;
+  const prompt=status==='paid'?
+    'Have you personally confirmed the exact order amount and UTR are credited in the WOODPECK INTERNATIONAL TMB bank account? Mark PAID only after bank verification.':
+    'Reject this payment reference? You should contact the customer to reconcile the transaction.';
+  if(!confirm(prompt))return;
+  btn.disabled=true;
+  try{
+    await reviewUpiOrder({orderId,status});
+    alertMessage('orderStatus','Order '+orderId+' updated to '+status+'.');
+  }catch(err){alertMessage('orderStatus','Review failed: '+(err.code||err.message),true);}
+  finally{if(btn.isConnected)btn.disabled=false;}
 });

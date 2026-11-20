@@ -30,6 +30,31 @@ service cloud.firestore {
         request.resource.data.published is bool && request.resource.data.bestseller is bool;
       allow delete: if isAdmin();
     }
+    // Server-only payment records. A customer may view only their own order.
+    // Client-side UTR submission and admin payment approval are disabled:
+    // callable server functions validate transitions and inventory.
+    match /orders/{orderId} {
+      allow get: if isAdmin() ||
+        (request.auth != null && resource.data.uid == request.auth.uid);
+      allow list: if isAdmin();
+      allow create, update, delete: if false;
+    }
+    match /paymentReferences/{referenceId} {
+      allow read, write: if false;
+    }
+    match /settings/checkout {
+      allow get: if isAdmin();
+      allow list: if false;
+      allow create, update: if isAdmin() &&
+        request.resource.data.keys().hasOnly(['enabled','shippingCharge','taxIncluded','updatedAt']) &&
+        request.resource.data.enabled is bool &&
+        request.resource.data.taxIncluded == true &&
+        request.resource.data.shippingCharge is int &&
+        request.resource.data.shippingCharge >= 0 &&
+        request.resource.data.shippingCharge <= 100000 &&
+        request.resource.data.updatedAt is timestamp;
+      allow delete: if false;
+    }
     match /{document=**} { allow read, write: if false; }
   }
 }

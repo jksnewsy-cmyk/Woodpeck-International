@@ -130,3 +130,12 @@ The Vite project has a separate Firebase-connected admin dashboard to add, edit 
 The **Admin Panel only** allows `+918754344229` and `+919659650202` to request an OTP via its UI. Customer OTP login is unaffected. An already-signed-in customer number outside this list is also rejected, even if there is a stray `admins/{uid}` entry. No admin access is granted just because the number is allowed: an `admins/{uid}` document with `active: true` is still required for *each* approved admin Firebase UID.
 
 **Critical deployment step:** The matching allowlist is present in **both** `firestore.rules` and `storage.rules`, using the Firebase-signed `request.auth.token.phone_number`, **not a client-supplied field**. A project owner MUST publish the updated rules from these files in the Firebase Console; GitHub / Vercel deployment alone does not apply Firebase rules. Until both rulesets are live, server-side restrictions are not fully in effect. This UI blocks OTP dispatch to other phone numbers but Firebase Authentication APIs may still be used outside our website; Firebase phone number sign-in itself cannot be restricted merely by web UI/Firestore rules. Use appropriate Firebase SMS anti-abuse quotas / Identity Platform controls if SMS abuse is a concern.
+
+## Direct TMB UPI checkout implementation
+
+See `UPI_LIVE_CHECKLIST.md` for deployment, bank-verification and merchant
+approval requirements. The merchant payment backend is implemented with Firebase
+Cloud Functions; users never enter bank PINs on this website, and UTR submission
+**does not** mark orders paid. Functions require deployment, and merchant checkout
+is disabled by default until the owner explicitly confirms details in Admin.
+Existing README demo descriptions above document the original prototype.

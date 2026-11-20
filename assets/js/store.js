@@ -1,3 +1,5 @@
+import QRCode from 'qrcode';
+import {createUpiOrder,submitUpiReference,fetchUpiOrder} from './checkout-api.js';
 import {
   firebaseReady, signedInUser, onLoginChange,
   sendPhoneCode, confirmPhoneCode, logoutPhoneUser, registerCustomerName,
@@ -30,6 +32,7 @@ const state = {
   payment: 'upi',
   addAddressForm: false,
   review: false,
+  activeOrder:null,
 };
 if (!state.cart || typeof state.cart !== 'object' || Array.isArray(state.cart)) state.cart = {};
 if (!Array.isArray(state.favs)) state.favs = [];
@@ -96,7 +99,7 @@ function cartSummary(buttonLabel = 'Continue to Delivery', target = '#/address')
     <div class="summary-line summary-total"><span>Subtotal</span><strong>${money(subtotal())}</strong></div>
     <p class="summary-note">Final shipping charge, taxes and product availability must be confirmed before real checkout.</p>
     ${target ? `<a href="${target}" class="store-btn primary full">${esc(buttonLabel)} →</a>` : ''}
-    <div class="store-security">🔒 Payment is disabled in this preview. No charge will be made.</div>
+    <div class="store-security">🔒 Final payment amount is verified by the merchant backend before any UPI QR appears.</div>
   </aside>`;
 }
 function shop(route) {
@@ -192,35 +195,97 @@ function addressPage() {
     </form>`:''}
     </section>${cartSummary('Back to Cart','#/cart')}</div></div>`;
 }
-const payOptions=[
-  {id:'upi',icon:'₹',name:'UPI Payment',desc:'Google Pay, PhonePe, Paytm and other UPI apps'},
-  {id:'card',icon:'▣',name:'Credit / Debit Card',desc:'Visa, Mastercard, RuPay and supported cards'},
-  {id:'net',icon:'⌘',name:'Net Banking',desc:'Pay using your bank account'},
-  {id:'cod',icon:'▤',name:'Cash on Delivery',desc:'Only if enabled by the store for your PIN code'},
-];
-function paymentPage() {
-  if (!count()) { go('cart'); return ''; }
+// UPI is intentionally the only live payment method. All payment statuses are
+// server controlled; no buyer action can mark an order paid.
+const MERCHANT_UPI='woodpeckinternational01@tmb';
+function upiLink(order){
+  const query=new URLSearchParams({
+    pa:order.merchantUpi||MERCHANT_UPI,
+    pn:order.merchantName||'WOODPECK INTERNATIONAL',
+    am:Number(order.total).toFixed(2),cu:'INR',
+    tn:'Woodpeck order '+order.id.slice(0,14)
+  });
+  return 'upi://pay?'+query.toString();
+}
+function orderSummary(order){
+  return '<aside class="store-summary"><h2>Confirmed Order Amount</h2>'+
+    '<div class="summary-line"><span>Products</span><strong>'+money(order.subtotal)+'</strong></div>'+
+    '<div class="summary-line"><span>Shipping</span><strong>'+money(order.shipping)+'</strong></div>'+
+    '<div class="summary-line summary-total"><span>Total payable</span><strong>'+money(order.total)+'</strong></div>'+
+    '<p class="summary-note">Tax included. Never pay a different amount. Verify the receiver name in your UPI app before approving.</p></aside>';
+}
+function paymentPage(){
+  if(!count()&&!state.activeOrder){go('cart');return '';}
   const address=currentAddress();
-  if (!address) { go('address'); return ''; }
-  return `<div class="container store-page">${breadcrumb(['Checkout','Payment'])}${head('FINAL STEP','Payment Method','Choose how you would like to pay for your furniture.')}
-    ${stepper('payment')}<div class="store-checkout-layout"><section class="checkout-main">
-      <div class="address-strip"><div><small>DELIVER TO</small><strong>${esc(address.name)} · ${esc(address.phone)}</strong><span>${esc(address.line1)}, ${esc(address.city)}, ${esc(address.state)} - ${esc(address.pin)}</span></div><a href="#/address">Change</a></div>
-      <h2 class="checkout-panel-title">Select Payment Method</h2>
-      <div class="payment-options">${payOptions.map(p=>`<label class="payment-option ${state.payment===p.id?'active':''}">
-        <input type="radio" name="payment" value="${p.id}" ${state.payment===p.id?'checked':''}/>
-        <span class="pay-icon">${p.icon}</span><span class="pay-info"><strong>${esc(p.name)}</strong><small>${esc(p.desc)}</small></span><span class="pay-radio"></span>
-      </label>`).join('')}</div>
-      <div class="payment-preview-notice"><strong>🔒 Payment gateway not yet connected</strong><p>This is a demonstration payment selection screen. Never enter real UPI PIN, card number, CVV, or bank password here. No payment will be charged and no order will be placed.</p></div>
-      <label class="demo-confirm"><input type="checkbox" id="previewConsent"/> I understand this is a website demo and no real order or payment will be processed.</label>
-      <button class="store-btn primary payment-review-btn" id="paymentReview" ${state.review?'':''}>View Demo Checkout Summary →</button>
-      <div id="paymentReviewResult" class="payment-review-result" ${state.review?'':'hidden'}>
-        <h3>Demo checkout summary</h3>
-        <p>Selected payment: <strong>${esc(payOptions.find(p=>p.id===state.payment)?.name)}</strong></p>
-        <p>Sample subtotal: <strong>${money(subtotal())}</strong></p>
-        <p><strong>No payment collected. No order created.</strong> The real gateway, verified charges, live product inventory and delivery rules must be configured before taking customer orders.</p>
-        <a class="store-btn ghost" href="#/shop">Return to shopping</a>
-      </div>
-    </section>${cartSummary('',null)}</div></div>`;
+  if(!address&&!state.activeOrder){go('address');return '';}
+  const order=state.activeOrder;
+  const addressBlock=order?order.address:address;
+  let content='';
+  if(!signedInUser) {
+    content='<div class="payment-preview-notice"><strong>Mobile OTP login required</strong><p>For secure orders, sign in using your mobile number before paying.</p></div><a class="store-btn primary" href="#/account">Sign in to continue →</a>';
+  } else if(order) {
+    const waiting=order.status==='payment_pending';
+    const status=({
+      payment_pending:'Awaiting UPI payment',
+      verification_pending:'Payment reference submitted — checking with bank',
+      paid:'Payment confirmed by Woodpeck International',
+      rejected:'Payment could not be verified — contact the store',
+      cancelled:'Order cancelled'
+    })[order.status]||'Order status: '+order.status;
+    content='<section class="upi-live-box">'+
+      '<div class="upi-heading"><h2>'+esc(status)+'</h2><p>Order ID: <code>'+esc(order.id)+'</code></p></div>'+
+      '<p>Pay <strong>'+money(order.total)+'</strong> only to <strong>'+esc(order.merchantName||'WOODPECK INTERNATIONAL')+'</strong>.</p>'+
+      (waiting?'<div class="upi-qr-wrap"><img id="payQr" alt="UPI QR code for this order and exact payable amount"/><p>Scan with any UPI app</p></div>'+
+       '<div class="upi-id">UPI ID: <strong>'+esc(order.merchantUpi||MERCHANT_UPI)+'</strong></div>'+
+       '<a class="store-btn primary upi-pay-action" href="'+esc(upiLink(order))+'">Pay '+money(order.total)+' using UPI App →</a>'+
+       '<p class="payment-safety">Check recipient name and amount inside your UPI app. Do not enter a PIN on this website.</p>'+
+       '<form id="upiReferenceForm" class="upi-reference-form"><label for="upiUtr">After payment, enter your UPI transaction reference / UTR</label>'+
+       '<input id="upiUtr" name="utr" type="text" inputmode="numeric" pattern="[0-9]{10,22}" minlength="10" maxlength="22" placeholder="UPI Transaction / UTR number" required/>'+
+       '<button type="submit" class="store-btn primary">Submit for bank verification</button></form>':
+       '<p class="payment-safety">Payment is only considered successful after the shop checks its bank statement. UTR alone is not proof of payment.</p>'+
+       (order.utr?'<p>Submitted reference: <strong>'+esc(order.utr)+'</strong></p>':''))+
+      '<div id="upiMessage" role="status"></div><button class="store-btn ghost" id="refreshUpiOrder">Refresh order status</button>'+
+      '<button class="store-btn ghost" id="newUpiOrder">Start a new checkout</button>'+
+      '</section>';
+  } else {
+    content='<h2 class="checkout-panel-title">UPI Payment</h2>'+
+      '<div class="payment-options"><div class="payment-option active"><span class="pay-icon">₹</span><span class="pay-info"><strong>UPI — Google Pay, PhonePe, BHIM</strong><small>Money goes directly to Woodpeck International bank-linked UPI.</small></span></div></div>'+
+      '<div class="payment-preview-notice"><strong>Secure order creation</strong><p>The server will verify published stock, calculate the exact item prices and merchant-approved delivery charge. Payment QR is shown only after the final amount is confirmed. If the merchant has not enabled checkout, no payment QR will be shown.</p></div>'+
+      '<button class="store-btn primary" id="createUpiOrder">Generate order &amp; show exact UPI amount →</button>'+
+      '<p class="payment-safety">Payment is manually verified against the merchant bank account, not automatically by a gateway.</p>'+
+      '<div id="upiMessage" role="alert"></div>';
+  }
+  return '<div class="container store-page">'+breadcrumb(['Checkout','Payment'])+
+    head('FINAL STEP','Payment Method','Pay directly to Woodpeck International by UPI.')+
+    stepper('payment')+'<div class="store-checkout-layout"><section class="checkout-main">'+
+    (addressBlock?'<div class="address-strip"><div><small>DELIVER TO</small><strong>'+esc(addressBlock.name)+' · '+esc(addressBlock.phone)+'</strong><span>'+esc(addressBlock.line1)+', '+esc(addressBlock.city)+', '+esc(addressBlock.state)+' - '+esc(addressBlock.pin)+'</span></div>'+(!order?'<a href="#/address">Change</a>':'')+'</div>':'')+
+    content+'</section>'+(order?orderSummary(order):cartSummary('',null))+'</div></div>';
+}
+async function displayUpiQr(){
+  const img=$('payQr');
+  if(!img||!state.activeOrder)return;
+  try{
+    img.src=await QRCode.toDataURL(upiLink(state.activeOrder),{width:280,margin:2,errorCorrectionLevel:'M'});
+  }catch(e){img.replaceWith(document.createTextNode('QR not available. Use the UPI App payment button.'));}
+}
+async function refreshCurrentUpiOrder(){
+  const prior=state.activeOrder;
+  if(!prior||!signedInUser)return;
+  try{
+    const current=await fetchUpiOrder(prior.id);
+    if(current&&current.uid===signedInUser.uid){state.activeOrder=current;render();}
+    else {state.activeOrder=null;localStorage.removeItem('woodpeck-current-order');render();}
+  }catch(e){const msg=$('upiMessage');if(msg)msg.textContent='Could not refresh order: '+(e.code||e.message);}
+}
+async function restoreUpiOrder(){
+  if(!signedInUser)return;
+  const saved=read('woodpeck-current-order',null);
+  if(saved?.uid===signedInUser.uid&&typeof saved.id==='string'){
+    try{
+      const order=await fetchUpiOrder(saved.id);
+      if(order&&order.uid===signedInUser.uid){state.activeOrder=order;if(location.hash.startsWith('#/payment'))render();}
+    }catch(e){console.warn('Unable to restore order',e.code||e.message);}
+  }
 }
 function accountPage() {
   const isRegister = authMode === 'register';
@@ -246,7 +311,7 @@ function accountPage() {
     <div class="auth-scene"><a class="auth-back" href="index.html" aria-label="Back to store">← Back to Store</a><div class="auth-brand"><img src="${asset('assets/images/woodpeck-brandmark.webp')}" alt="Woodpeck bird emblem"/><div class="auth-brand-name">Woodpeck</div><div class="auth-brand-sub"><span></span> INTERNATIONAL <span></span></div><p>Furniture &amp; Wood Products</p></div></div>
     <div class="auth-card"><div class="auth-card-content">${signedInUser?'':tabs}${mainForm}
       <div class="auth-benefits"><div><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 2 8 4v5c0 5-3 9-8 11-5-2-8-6-8-11V6zM8 12l3 3 5-6"/></svg><span>Secure<br/>Login</span></div><div><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m13 1-9 13h7l-1 9 10-14h-7z"/></svg><span>Quick<br/>Access</span></div><div><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10" width="14" height="12" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3m-4 5v3"/></svg><span>Your Data<br/>is Safe</span></div></div>
-      <small class="auth-legal">Phone authentication is provided by Firebase. Your verified phone number is used for sign-in. Orders and payments are still in demo mode.</small>
+      <small class="auth-legal">Phone authentication is provided by Firebase. Your verified phone number is used for sign-in. UPI payments require a confirmed merchant checkout configuration and manual bank verification.</small>
     </div><div class="auth-wood-wave" aria-hidden="true"></div></div>
   </section>`;
 }
@@ -255,7 +320,7 @@ function contactPage() {
     <div class="policy-grid"><section><h2>Contact Woodpeck International</h2><p>Official phone, email, office address and WhatsApp support links will be added after the client approves them.</p></section>
     <section><h2>Shipping & Delivery</h2><p>Delivery areas, shipping charges, lead time and installation costs are not yet configured. Final charges will be displayed before a live payment is allowed.</p></section>
     <section><h2>Returns & Refunds</h2><p>The store must publish its approved return, damage, cancellation and refund policy before accepting orders.</p></section>
-    <section><h2>Privacy & Terms</h2><p>This local demonstration stores sample cart, wishlist and delivery-address data in your browser only. It does not send any details to a server.</p></section></div>
+    <section><h2>Privacy & Terms</h2><p>Cart, wishlist and saved delivery addresses are stored on this browser. When you place a real UPI order, your delivery and order details are securely saved in Firebase for merchant fulfilment.</p></section></div>
   </div>`;
 }
 function render() {
@@ -279,6 +344,7 @@ function render() {
   $('page').innerHTML=body;
   document.title = (kind.charAt(0).toUpperCase()+kind.slice(1))+' | Woodpeck International';
   updateBadges();
+  if(kind==='payment'&&state.activeOrder)void displayUpiQr();
   window.scrollTo({top:0,behavior:'instant'});
 }
 function addToCart(id, buy=false) {
@@ -297,7 +363,7 @@ function toggleFavorite(id) {
   save();render();toast(state.favs.includes(id)?'Saved to wishlist':'Removed from wishlist');
 }
 document.addEventListener('click',(event)=>{
-  const btn=event.target.closest('[data-add],[data-buy],[data-fav],[data-qty],[data-remove],[data-address-new],[data-address-next],#paymentReview');
+  const btn=event.target.closest('[data-add],[data-buy],[data-fav],[data-qty],[data-remove],[data-address-new],[data-address-next]');
   if(!btn)return;
   if(btn.dataset.add){addToCart(btn.dataset.add);return;}
   if(btn.dataset.buy){addToCart(btn.dataset.buy,true);return;}
@@ -309,24 +375,27 @@ document.addEventListener('click',(event)=>{
     if(!currentAddress()) {toast('Select an address or add a new one');return;}
     go('payment');return;
   }
-  if(btn.id==='paymentReview'){
-    if(!$('previewConsent')?.checked){toast('Please confirm this is a demonstration first');return;}
-    state.review=true;
-    const result=$('paymentReviewResult');
-    result.hidden=false;
-    result.querySelector('p').innerHTML='Selected payment: <strong>'+esc(payOptions.find(p=>p.id===state.payment)?.name)+'</strong>';
-    result.scrollIntoView({behavior:'smooth',block:'center'});
-  }
+
 });
 document.addEventListener('change',(event)=>{
   if(event.target.id==='storeSort'){state.sort=event.target.value;render();}
   if(event.target.name==='savedAddress'){state.selectedAddress=event.target.value;save();render();}
-  if(event.target.name==='payment'){state.payment=event.target.value;state.review=false;render();}
 });
-document.addEventListener('submit',(event)=>{
+document.addEventListener('submit',async (event)=>{
   if(event.target.id==='storeSearchForm'){
     event.preventDefault();state.search=$('storeSearch').value.trim();
     if(location.hash==='#/shop')render();else go('shop');
+    return;
+  }
+  if(event.target.id==='upiReferenceForm'){
+    event.preventDefault();
+    if(!state.activeOrder||!event.target.reportValidity())return;
+    const btn=event.target.querySelector('button');btn.disabled=true;
+    try{
+      await submitUpiReference({orderId:state.activeOrder.id,utr:event.target.elements.utr.value.trim()});
+      await refreshCurrentUpiOrder();
+    }catch(err){$('upiMessage').textContent='Reference could not be submitted: '+(err.message||err.code);}
+    finally{if(btn.isConnected)btn.disabled=false;}
     return;
   }
   if(event.target.id==='deliveryForm'){
@@ -343,6 +412,28 @@ document.addEventListener('submit',(event)=>{
     state.addresses.push(address);
     state.selectedAddress=address.id;state.addAddressForm=false;save();
     toast('Address saved on this device');go('payment');
+  }
+});
+document.addEventListener('click',async event=>{
+  const create=event.target.closest('#createUpiOrder');
+  if(create){
+    if(!signedInUser){go('account');return;}
+    create.disabled=true;
+    try{
+      const result=await createUpiOrder({address:currentAddress(),
+        items:Object.entries(state.cart).map(([id,qty])=>({id,qty}))});
+      state.activeOrder={...result,id:result.orderId,address:currentAddress(),status:'payment_pending',uid:signedInUser.uid};
+      localStorage.setItem('woodpeck-current-order',JSON.stringify({id:result.orderId,uid:signedInUser.uid}));
+      render();
+    }catch(err){
+      const el=$('upiMessage');
+      if(el)el.textContent='Cannot begin payment: '+(err.message||err.code)+'. No money has been taken.';
+    }finally{if(create.isConnected)create.disabled=false;}
+    return;
+  }
+  if(event.target.closest('#refreshUpiOrder')){await refreshCurrentUpiOrder();return;}
+  if(event.target.closest('#newUpiOrder')){
+    state.activeOrder=null;localStorage.removeItem('woodpeck-current-order');render();
   }
 });
 window.addEventListener('hashchange',()=>{state.review=false;render();});
@@ -432,8 +523,13 @@ document.addEventListener('click', async event => {
     }
   }
 });
-onLoginChange(() => {
-  if (window.location.hash.startsWith('#/account')) render();
+onLoginChange(user => {
+  // Do not expose a previous signed-in customer's name, address, or order.
+  if (!user || (state.activeOrder && state.activeOrder.uid !== user.uid)) {
+    state.activeOrder = null;
+  }
+  if (window.location.hash.startsWith('#/account') || window.location.hash.startsWith('#/payment')) render();
+  if (user) void restoreUpiOrder();
 });
 
 // Cloud catalog updates are published by authorised admins and loaded read-only for customers.
@@ -443,8 +539,9 @@ watchPublishedProducts(cloudItems => {
   const validated = cloudItems.filter(p => p && typeof p.id === 'string' && typeof p.name === 'string' &&
     typeof p.image === 'string' && p.image.startsWith('https://') &&
     Number.isFinite(p.price) && p.price >= 0);
-  const cloudIds = new Set(validated.map(p=>p.id));
-  products.splice(0,products.length,...validated,...initialDemoProducts.filter(p=>!cloudIds.has(p.id)));
+  // Never mix demonstrator furniture or example prices into a live published catalogue.
+  // Keep clearly documented demo stock only while the business catalogue is empty.
+  products.splice(0,products.length,...(validated.length?validated:initialDemoProducts));
   const route=location.hash.replace(/^#\/?/,'').split('/')[0];
   if (['shop','product','wishlist','cart'].includes(route) || !route) render();
 }, error => {
