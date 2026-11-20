@@ -72,3 +72,26 @@ Deploy the Vite frontend separately through its existing Vercel/Git workflow.
 Never add backend secrets to Vite public environment variables. Do not release
 the UPI checkout solely because its visual QR appears; verify bank routing,
 business policy, inventory, Firebase authentication, and manual admin review.
+
+## CURRENT LAUNCH BLOCKER: Cloud Run invocation IAM
+
+As verified on 2026-11-20, all three functions are deployed and ACTIVE, but
+public Cloud Functions HTTPS calls return **403 Forbidden HTML**. This is a
+transport-layer Cloud Run IAM restriction. A valid Firebase customer ID token
+is not a Cloud Run IAM identity token, so customer checkout will not work yet.
+
+The Firebase / Google Cloud project administrator must open Cloud Run Services
+in the Google Cloud Console (project: `woodpeck-international`, region:
+`asia-south1`) and allow invocation by `allUsers` for **only** these three
+callable services: `createUpiOrder`, `submitUpiReference`, `reviewUpiOrder`.
+Use the Cloud Run Invoker role on each service or the supported Console option
+for unauthenticated service invocation. This allows HTTP transport only; the
+callable business logic still strictly requires Firebase Auth OTP, an
+approved-admin document for reviews, trusted pricing and Firestore rules.
+Do not grant project-wide IAM roles or disable database security.
+
+After Cloud Run IAM permission is fixed, POSTing `{\"data\":{}}` without a
+Firebase user token to any endpoint must produce a callable
+`UNAUTHENTICATED` JSON error, **not** Cloud Run HTML 403. After that, run an
+actual merchant-authorized low-value transaction and confirm receipt in TMB.
+Checkout stays disabled in merchant settings until all those tests pass.
