@@ -10,6 +10,9 @@ let lastLoginPhone = '';
 let authMode = 'login';
 let registrationName = '';
 let addressUid=null,addressStatus='idle',shippingQuote=null,authKnown=false,editingAddress=null,addressSaving=false;
+const UPI_CHECKOUT_LIMIT=100000;
+let paymentCreating=false;
+const exceedsUpiLimit=()=>subtotal()+(shippingQuote??0)>UPI_CHECKOUT_LIMIT;
 
 import './products.js';
 import { watchPublishedProducts } from './firebase-catalog.js';
@@ -69,6 +72,7 @@ async function loadAddressBook(uid){
 async function loadDeliveryQuote(uid){
   try{const quote=await readDeliveryQuote();if(addressUid===uid)shippingQuote=quote;}catch(e){if(addressUid===uid)shippingQuote=null;}
   if(addressUid===uid&&$('deliverySummary'))$('deliverySummary').innerHTML=deliverySummaryContent();
+  if(addressUid===uid&&location.hash.startsWith('#/payment')&&!state.activeOrder&&!paymentCreating)render();
 }
 let toastTimer;
 function toast(message) {
@@ -114,8 +118,8 @@ function cartSummary(buttonLabel = 'Continue to Delivery', target = '#/address')
   return `<aside class="store-summary">
     <h2>Order Summary</h2>
     <div class="summary-line"><span>Items (${count()})</span><strong>${money(subtotal())}</strong></div>
-    <div class="summary-line"><span>Shipping</span><strong class="small-normal">Not calculated</strong></div>
-    <div class="summary-line summary-total"><span>Subtotal</span><strong>${money(subtotal())}</strong></div>
+    <div class="summary-line"><span>Shipping</span><strong class="small-normal">${shippingQuote===null?'To be confirmed':money(shippingQuote)}</strong></div>
+    <div class="summary-line summary-total"><span>${shippingQuote===null?'Subtotal':'Estimated Total Payable'}</span><strong>${money(subtotal()+(shippingQuote??0))}</strong></div>
     <p class="summary-note">Final shipping charge, taxes and product availability must be confirmed before real checkout.</p>
     ${target ? `<a href="${target}" class="store-btn primary full">${esc(buttonLabel)} →</a>` : ''}
     <div class="store-security">🔒 Final payment amount is verified by the merchant backend before any UPI QR appears.</div>
@@ -319,11 +323,13 @@ function paymentPage(){
       '<div id="upiMessage" role="status"></div><button class="store-btn ghost" id="refreshUpiOrder">Refresh order status</button>'+
       '<button class="store-btn ghost" id="newUpiOrder">Start a new checkout</button>'+
       '</section>';
+  } else if(exceedsUpiLimit()) {
+    content='<h2 class="checkout-panel-title">UPI Payment</h2><div class="payment-preview-notice payment-limit"><strong>Order exceeds the online UPI checkout limit</strong><p>Your order total '+money(subtotal()+(shippingQuote??0))+' exceeds this store’s ₹1,00,000 single-payment checkout limit. Please edit your cart or contact Woodpeck International to arrange a verified bank transfer for the full order.</p><a class="store-btn primary" href="#/cart">Edit Cart →</a></div>';
   } else {
     content='<h2 class="checkout-panel-title">UPI Payment</h2>'+
       '<div class="payment-options"><div class="payment-option active"><span class="pay-icon">₹</span><span class="pay-info"><strong>UPI — Google Pay, PhonePe, BHIM</strong><small>Money goes directly to Woodpeck International bank-linked UPI.</small></span></div></div>'+
       '<div class="payment-preview-notice"><strong>Secure order creation</strong><p>The server will verify published stock, calculate the exact item prices and merchant-approved delivery charge. Payment QR is shown only after the final amount is confirmed. If the merchant has not enabled checkout, no payment QR will be shown.</p></div>'+
-      '<button class="store-btn primary" id="createUpiOrder">Generate order &amp; show exact UPI amount →</button>'+
+      '<button class="store-btn primary" id="createUpiOrder"'+(paymentCreating?' disabled':'')+'>'+(paymentCreating?'Creating secure order…':'Generate order &amp; show exact UPI amount →')+'</button>'+
       '<p class="payment-safety">Payment is manually verified against the merchant bank account, not automatically by a gateway.</p>'+
       '<div id="upiMessage" role="alert"></div>';
   }
@@ -512,17 +518,21 @@ document.addEventListener('click',async event=>{
   if(create){
     if(!signedInUser){go('account');return;}
     if(!currentAddress()){go('address');return;}
-    create.disabled=true;
+    if(paymentCreating)return;
+    if(exceedsUpiLimit()){render();return;}
+    const buyerUid=signedInUser.uid, delivery=currentAddress();
+    paymentCreating=true;create.disabled=true;create.textContent='Creating secure order…';
     try{
-      const result=await createUpiOrder({address:currentAddress(),
+      const result=await createUpiOrder({address:delivery,
         items:Object.entries(state.cart).filter(([id])=>!!item(id)).map(([id,qty])=>({id,qty}))});
-      state.activeOrder={...result,id:result.orderId,address:currentAddress(),status:'payment_pending',uid:signedInUser.uid};
+      if(signedInUser?.uid!==buyerUid)return;
+      state.activeOrder={...result,id:result.orderId,address:delivery,status:'payment_pending',uid:buyerUid};
       localStorage.setItem('woodpeck-current-order',JSON.stringify({id:result.orderId,uid:signedInUser.uid}));
       render();
     }catch(err){
       const el=$('upiMessage');
-      if(el)el.textContent='Cannot begin payment: '+(err.message||err.code)+'. No money has been taken.';
-    }finally{if(create.isConnected)create.disabled=false;}
+      if(el){const code=String(err.code||'');el.textContent=(code.endsWith('/internal')||code.endsWith('/unavailable')?'Payment server temporarily unavailable. Please try again.':(err.message||'Could not create the order.'))+' No payment was initiated.';}
+    }finally{paymentCreating=false;const button=$('createUpiOrder');if(button){button.disabled=false;button.textContent='Generate order & show exact UPI amount →';}}
     return;
   }
   if(event.target.closest('#refreshUpiOrder')){await refreshCurrentUpiOrder();return;}
@@ -530,7 +540,7 @@ document.addEventListener('click',async event=>{
     state.activeOrder=null;localStorage.removeItem('woodpeck-current-order');render();
   }
 });
-window.addEventListener('hashchange',()=>{state.review=false;render();if(location.hash.startsWith('#/address')&&addressUid)void loadDeliveryQuote(addressUid);});
+window.addEventListener('hashchange',()=>{state.review=false;render();if((location.hash.startsWith('#/address')||location.hash.startsWith('#/payment'))&&addressUid)void loadDeliveryQuote(addressUid);});
 window.addEventListener('storage',(event)=>{
   if(['woodpeck-demo-cart','woodpeck-demo-wishlist'].includes(event.key)){
     state.cart=read('woodpeck-demo-cart',{});
