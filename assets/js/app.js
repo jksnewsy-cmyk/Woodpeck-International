@@ -17,10 +17,10 @@
   }
   let cart = readSaved('woodpeck-demo-cart', {});
   if (!cart || typeof cart !== 'object' || Array.isArray(cart)) cart = {};
-  for (const id of Object.keys(cart)) if (!productById(id) || !Number.isInteger(cart[id]) || cart[id] < 1 || cart[id] > 99) delete cart[id];
+  for (const id of Object.keys(cart)) if (!Number.isInteger(cart[id]) || cart[id] < 1 || cart[id] > 99) delete cart[id];
   let wishlist = readSaved('woodpeck-demo-wishlist', []);
   if (!Array.isArray(wishlist)) wishlist = [];
-  wishlist = wishlist.filter(id => !!productById(id));
+  let catalogStatus = 'loading';
   let selectedCategory = 'all';
   let searchTerm = '';
   let showWishlistOnly = false;
@@ -34,13 +34,13 @@
       localStorage.setItem('woodpeck-demo-wishlist', JSON.stringify(wishlist));
     } catch (_) { /* Private browsing: demo still works for this session. */ }
   }
-  function quantity() { return Object.values(cart).reduce((sum, n) => sum + n, 0); }
+  function quantity() { return Object.entries(cart).filter(([id])=>!!productById(id)).reduce((sum, [,n]) => sum + n, 0); }
   function subtotal() { return Object.entries(cart).reduce((sum, [id, qty]) => sum + (productById(id)?.price || 0) * qty, 0); }
   function badgeCount(node, count) { if (node) { node.textContent = count; node.hidden = count === 0; } }
   function refreshCounts() {
     badgeCount(el('cartCount'), quantity());
     badgeCount(el('mobileCartCount'), quantity());
-    badgeCount(el('wishlistCount'), wishlist.length);
+    badgeCount(el('wishlistCount'), wishlist.filter(id=>!!productById(id)).length);
     el('bagCountLabel').textContent = '(' + quantity() + ')';
     el('subtotal').textContent = money(subtotal());
   }
@@ -88,6 +88,8 @@
     const list = filteredProducts();
     el('featuredGrid').innerHTML = list.map(productCard).join('');
     el('emptyState').hidden = list.length > 0;
+    el('emptyState').querySelector('h3').textContent = catalogStatus==='loading'?'Loading furniture…':catalogStatus==='error'?'Products temporarily unavailable':products.length?'No furniture found':'New products coming soon';
+    el('emptyState').querySelector('p').textContent = catalogStatus==='loading'?'Loading our collection.':catalogStatus==='error'?'Please refresh the page to try again.':products.length?'Try another search or explore all products.':'Our latest collection will appear here when available.';
     el('resultsLabel').textContent = list.length + (list.length === 1 ? ' selected piece' : ' selected pieces');
     const hasFilter = selectedCategory !== 'all' || searchTerm !== '' || showWishlistOnly;
     el('activeFilter').hidden = !hasFilter;
@@ -100,6 +102,7 @@
     refreshCounts();
   }
   function renderBestSellers() {
+    el('bestsellers').hidden = !products.some(product=>product.bestseller);
     el('bestGrid').innerHTML = products.filter(product => product.bestseller).map(product => `
       <button class="best-card" data-view="${product.id}"><img src="${product.image}" alt="${escapeHtml(product.name)}" loading="lazy" /><div><strong>${escapeHtml(product.name)}</strong><span>${money(product.price)} ↗</span></div></button>`).join('');
   }
@@ -141,7 +144,7 @@
     saveState(); refreshCounts(); renderCart();
   }
   function renderCart() {
-    const pairs = Object.entries(cart);
+    const pairs = Object.entries(cart).filter(([id])=>!!productById(id));
     if (!pairs.length) {
       el('cartItems').innerHTML = `<div class="cart-empty">${svgCart}<h3>Your bag is empty</h3><p>Find something lovely for your space.</p><button type="button" class="btn btn-outline" data-close="drawer">Explore furniture</button></div>`;
     } else {
@@ -246,5 +249,16 @@
   el('sortProducts').addEventListener('change', event => { sortOrder = event.target.value; renderProducts(); });
   el('year').textContent = new Date().getFullYear();
   renderCategories(); renderProducts(); renderBestSellers(); renderCart();
-  window.addEventListener('woodpeck-catalog-updated',()=>{renderProducts();renderBestSellers();renderCart();});
+  window.addEventListener('woodpeck-catalog-updated',e=>{
+    catalogStatus=products.length||!e.detail.fromCache?'ready':'loading';
+    if(!e.detail.fromCache){
+      // Remove only old sample entries that are not real published listings.
+      const oldDemoIds=['sofa-01','table-01','bed-01','wardrobe-01','decor-01','chair-01'];
+      for(const id of oldDemoIds)if(!productById(id))delete cart[id];
+      wishlist=wishlist.filter(id=>!oldDemoIds.includes(id)||!!productById(id));
+      saveState();
+    }
+    renderProducts();renderBestSellers();renderCart();
+  });
+  window.addEventListener('woodpeck-catalog-error',()=>{catalogStatus='error';renderProducts();renderBestSellers();});
 })();

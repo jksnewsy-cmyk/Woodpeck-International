@@ -14,6 +14,7 @@ import './products.js';
 import { watchPublishedProducts } from './firebase-catalog.js';
 
 const products = window.WOODPECK_PRODUCTS || [];
+let catalogStatus='loading';
 const categories = window.WOODPECK_CATEGORIES || [];
 const $ = (id) => document.getElementById(id);
 const esc = (text) => String(text ?? '').replace(/[&<>"']/g, (ch) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
@@ -38,7 +39,7 @@ if (!state.cart || typeof state.cart !== 'object' || Array.isArray(state.cart)) 
 if (!Array.isArray(state.favs)) state.favs = [];
 if (!Array.isArray(state.addresses)) state.addresses = [];
 for (const key of Object.keys(state.cart)) {
-  if (!item(key) || !Number.isInteger(state.cart[key]) || state.cart[key] < 1 || state.cart[key] > 99) delete state.cart[key];
+  if (!Number.isInteger(state.cart[key]) || state.cart[key] < 1 || state.cart[key] > 99) delete state.cart[key];
 }
 const save = () => {
   try {
@@ -48,7 +49,7 @@ const save = () => {
     localStorage.setItem('woodpeck-demo-selected-address', JSON.stringify(state.selectedAddress));
   } catch (err) { console.warn('Browser storage unavailable', err); }
 };
-const count = () => Object.values(state.cart).reduce((sum, qty) => sum + qty, 0);
+const count = () => Object.entries(state.cart).filter(([id])=>!!item(id)).reduce((sum, [,qty]) => sum + qty, 0);
 const subtotal = () => Object.entries(state.cart).reduce((sum, [id,qty]) => sum + (item(id)?.price || 0) * qty, 0);
 const currentAddress = () => state.addresses.find((address) => address.id === state.selectedAddress);
 let toastTimer;
@@ -60,7 +61,7 @@ function badge(id, count) {
   const el = $(id); if (!el) return; el.textContent = count; el.hidden = count === 0;
 }
 function updateBadges() {
-  badge('cartBadge', count()); badge('favBadge', state.favs.length);
+  badge('cartBadge', count()); badge('favBadge', state.favs.filter(id=>!!item(id)).length);
   document.querySelectorAll('[data-bottom]').forEach((el) => {
     const route = window.location.hash.split('/')[1] || 'shop';
     el.classList.toggle('active', el.dataset.bottom === route);
@@ -120,7 +121,7 @@ function shop(route) {
     </aside>
     <section class="store-listing"><div class="listing-tools"><span>Showing ${list.length} product${list.length===1?'':'s'}</span>
       <label>Sort by <select id="storeSort"><option value="featured" ${state.sort==='featured'?'selected':''}>Featured</option><option value="low" ${state.sort==='low'?'selected':''}>Price: Low to High</option><option value="high" ${state.sort==='high'?'selected':''}>Price: High to Low</option><option value="az" ${state.sort==='az'?'selected':''}>Name: A-Z</option></select></label></div>
-      ${list.length ? `<div class="store-product-grid">${list.map(productCard).join('')}</div>` : empty('No matching furniture','Try another keyword or category.')}
+      ${list.length ? `<div class="store-product-grid">${list.map(productCard).join('')}</div>` : empty(products.length?'No matching furniture':'New products coming soon',products.length?'Try another keyword or category.':'Our latest collection will appear here when available.')}
     </section></div></div>`;
 }
 let detailSelection = {id:null, photo:0, qty:1};
@@ -373,7 +374,9 @@ function render() {
   if (route[0]==='checkout') route[0]='address';
   const kind=route[0];
   let body;
-  switch(kind) {
+  if(['shop','product','cart','wishlist','address','payment'].includes(kind)&&catalogStatus==='loading')body='<div class="container store-page">'+head('WOODPECK INTERNATIONAL','Loading furniture…')+'</div>';
+  else if(['shop','product','cart','wishlist','address','payment'].includes(kind)&&catalogStatus==='error'&&!products.length)body='<div class="container store-page">'+empty('Products temporarily unavailable','Please refresh the page to try again.')+'</div>';
+  else switch(kind) {
     case 'shop': body=shop(route);break;
     case 'product': body=productDetail(route[1]);break;
     case 'cart': body=cartPage();break;
@@ -474,7 +477,7 @@ document.addEventListener('click',async event=>{
     create.disabled=true;
     try{
       const result=await createUpiOrder({address:currentAddress(),
-        items:Object.entries(state.cart).map(([id,qty])=>({id,qty}))});
+        items:Object.entries(state.cart).filter(([id])=>!!item(id)).map(([id,qty])=>({id,qty}))});
       state.activeOrder={...result,id:result.orderId,address:currentAddress(),status:'payment_pending',uid:signedInUser.uid};
       localStorage.setItem('woodpeck-current-order',JSON.stringify({id:result.orderId,uid:signedInUser.uid}));
       render();
@@ -585,18 +588,22 @@ onLoginChange(user => {
   if (user) void restoreUpiOrder();
 });
 
-// Cloud catalog updates are published by authorised admins and loaded read-only for customers.
-// A blank/unavailable Firestore collection leaves the existing clearly-labeled demo products visible.
-const initialDemoProducts = products.slice();
-watchPublishedProducts(cloudItems => {
-  const validated = cloudItems.filter(p => p && typeof p.id === 'string' && typeof p.name === 'string' &&
-    typeof p.image === 'string' && p.image.startsWith('https://') &&
-    Number.isFinite(p.price) && p.price >= 0);
-  // Never mix demonstrator furniture or example prices into a live published catalogue.
-  // Keep clearly documented demo stock only while the business catalogue is empty.
-  products.splice(0,products.length,...(validated.length?validated:initialDemoProducts));
+// Only published merchant inventory is shown. No fallback or sample products.
+watchPublishedProducts((cloudItems, fromCache) => {
+  const validated=cloudItems.filter(p=>p && typeof p.id==='string' && typeof p.name==='string' &&
+    typeof p.image==='string' && p.image.startsWith('https://') && Number.isFinite(p.price) && p.price>=0);
+  products.splice(0,products.length,...validated);
+  catalogStatus=validated.length||!fromCache?'ready':'loading';
+  if(!fromCache){
+    const oldDemoIds=['sofa-01','table-01','bed-01','wardrobe-01','decor-01','chair-01'];
+    for(const id of oldDemoIds)if(!item(id))delete state.cart[id];
+    state.favs=state.favs.filter(id=>!oldDemoIds.includes(id)||!!item(id));
+    save();
+  }
   const route=location.hash.replace(/^#\/?/,'').split('/')[0];
-  if (['shop','product','wishlist','cart'].includes(route) || !route) render();
-}, error => {
-  console.warn('Cloud product catalog is not available; displaying demo inventory.', error.code || error.message);
+  if(['shop','product','wishlist','cart','address','payment'].includes(route)||!route)render();
+},error=>{
+  catalogStatus='error';
+  console.warn('Cloud product catalog is not available.',error.code||error.message);
+  render();
 });

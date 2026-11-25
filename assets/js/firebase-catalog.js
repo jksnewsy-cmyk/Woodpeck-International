@@ -28,8 +28,8 @@ export async function checkAdmin(user) {
 }
 export function watchPublishedProducts(onProducts, onError) {
   // Firestore rules permit listing only published products, never unpublished ones.
-  return onSnapshot(query(productCol,where('published','==',true)), snapshot => {
-    onProducts(snapshot.docs.map(d => ({...d.data(),id:d.id})))
+  return onSnapshot(query(productCol,where('published','==',true)), {includeMetadataChanges:true}, snapshot => {
+    onProducts(snapshot.docs.map(d => ({...d.data(),id:d.id})), snapshot.metadata.fromCache)
   }, onError);
 }
 export function watchAllProducts(onProducts,onError) {
