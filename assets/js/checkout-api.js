@@ -14,7 +14,7 @@ export async function fetchUpiOrder(id){
   return result.exists()?{id:result.id,...result.data()}:null;
 }
 export function watchUpiOrders(onData,onError){
-  return onSnapshot(query(collection(db,'orders'),orderBy('createdAt','desc'),limit(50)),
+  return onSnapshot(query(collection(db,'orders'),orderBy('createdAt','desc')),
     snapshot=>onData(snapshot.docs.map(d=>({id:d.id,...d.data()}))),onError);
 }
 export async function getCheckoutSettings(){
