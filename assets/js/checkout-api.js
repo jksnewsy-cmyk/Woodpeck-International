@@ -1,5 +1,5 @@
 import {getFunctions,httpsCallable} from 'firebase/functions';
-import {getFirestore, doc, getDoc, getDocsFromServer, getDocFromServer, collection, query, orderBy, limit, onSnapshot, setDoc, serverTimestamp} from 'firebase/firestore';
+import {getFirestore, doc, getDoc, getDocsFromServer, getDocFromServer, collection, query, where, orderBy, limit, onSnapshot, setDoc, serverTimestamp} from 'firebase/firestore';
 import {auth} from './firebase-catalog.js';
 import {getStorage,ref,uploadBytes,getBlob} from 'firebase/storage';
 
@@ -58,4 +58,10 @@ export async function uploadPaymentProof(order,file){
 }
 export async function downloadPaymentProof(uid,id){
   return getBlob(ref(getStorage(app),'paymentEvidence/'+uid+'/'+id+'/proof'),5*1024*1024);
+}
+
+export async function readMyOrders(uid){
+  if(auth.currentUser?.uid!==uid)throw new Error('Sign in required.');
+  const snap=await getDocsFromServer(query(collection(db,'orders'),where('uid','==',uid)));
+  return snap.docs.map(d=>({...d.data(),id:d.id})).sort((a,b)=>(b.createdAt?.seconds||0)-(a.createdAt?.seconds||0));
 }

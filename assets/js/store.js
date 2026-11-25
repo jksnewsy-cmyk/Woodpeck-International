@@ -1,5 +1,5 @@
 import QRCode from 'qrcode';
-import {createUpiOrder,submitUpiReference,fetchUpiOrder,readCustomerAddresses,writeCustomerAddress,readDeliveryQuote,getBankSettings,uploadPaymentProof} from './checkout-api.js';
+import {createUpiOrder,submitUpiReference,fetchUpiOrder,readCustomerAddresses,writeCustomerAddress,readDeliveryQuote,getBankSettings,uploadPaymentProof,readMyOrders} from './checkout-api.js';
 import {
   firebaseReady, signedInUser, onLoginChange,
   sendPhoneCode, confirmPhoneCode, logoutPhoneUser, registerCustomerName,
@@ -12,6 +12,7 @@ let registrationName = '';
 let addressUid=null,addressStatus='idle',shippingQuote=null,authKnown=false,editingAddress=null,addressSaving=false;
 const UPI_CHECKOUT_LIMIT=100000;
 let paymentCreating=false,bankAvailable=false,bankChecked=false;
+let myOrders=[],myOrderStatus="idle",myOrderRequest=0;
 const exceedsUpiLimit=()=>subtotal()+(shippingQuote??0)>UPI_CHECKOUT_LIMIT;
 
 import './products.js';
@@ -67,7 +68,7 @@ async function loadAddressBook(uid){
     state.selectedAddress=read('woodpeck-selected-address-'+uid,null);
     chooseDefaultAddress();addressStatus='ready';
   }catch(e){if(addressUid!==uid)return;addressStatus='error';}
-  if(location.hash.startsWith('#/address')||location.hash.startsWith('#/payment'))render();
+  if(location.hash.startsWith('#/address')||location.hash.startsWith('#/payment')||location.hash.startsWith('#/account/addresses'))render();
 }
 async function loadDeliveryQuote(uid){
   try{const quote=await readDeliveryQuote();if(addressUid===uid)shippingQuote=quote;}catch(e){if(addressUid===uid)shippingQuote=null;}
@@ -250,8 +251,8 @@ const indianStates=['Andaman and Nicobar Islands','Andhra Pradesh','Arunachal Pr
 function deliverySummaryContent(){
   return `<h2>${addrIcon('cart')} Order Summary</h2><div class="da-items">${Object.entries(state.cart).filter(([id])=>item(id)).map(([id,qty])=>{const p=item(id);return `<div class="da-item"><img src="${esc(asset(p.image))}" alt=""><div><strong>${esc(p.name)}</strong><small>Qty: ${qty}</small></div><b>${money(p.price*qty)}</b></div>`;}).join('')}</div><div class="da-total-line"><span>Item Total</span><strong>${money(subtotal())}</strong></div><div class="da-total-line"><span>Shipping</span><strong>${shippingQuote===null?'To be confirmed':money(shippingQuote)}</strong></div><div class="da-payable"><span>${shippingQuote===null?'Item Subtotal':'Total Payable'}</span><strong>${money(subtotal()+(shippingQuote??0))}</strong></div><p class="da-fine">Final amount and stock verified before UPI payment.</p>`;
 }
-function addressPage(){
-  if(!count())return cartPage();
+function addressPage(manage=false){
+  if(!manage&&!count())return cartPage();
   const logged=!!signedInUser&&addressUid===signedInUser.uid,ready=logged&&addressStatus==='ready';
   const hasAddresses=ready&&state.addresses.length>0,showForm=ready&&(state.addAddressForm||!hasAddresses);
   const a=editingAddress?state.addresses.find(x=>x.id===editingAddress)||{}:{};
@@ -264,11 +265,11 @@ function addressPage(){
     <div class="form-pair"><label>City / Town *<input name="city" autocomplete="address-level2" required minlength="2" maxlength="70" value="${field('city')}" placeholder="City / town"></label><label>PIN Code *<input name="pin" inputmode="numeric" autocomplete="postal-code" pattern="[1-9][0-9]{5}" maxlength="6" minlength="6" required value="${field('pin')}" placeholder="6-digit PIN code"></label></div>
     <div class="form-pair"><label>State / Union Territory *<select name="state" autocomplete="address-level1" required><option value="">Select State</option>${indianStates.map(st=>`<option ${a.state===st?'selected':''}>${esc(st)}</option>`).join('')}</select></label><label>Address Type<select name="label">${['Home','Work','Other'].map(t=>`<option ${(a.label||'Home')===t?'selected':''}>${t}</option>`).join('')}</select></label></div>
     <p class="da-fine">Saved to your verified mobile account for future orders.</p><div class="da-form-actions">${hasAddresses?'<button type="button" class="da-outline" data-address-cancel>Cancel</button>':''}<button type="submit" class="da-primary" ${addressSaving?'disabled':''}>Save Address</button></div><p id="addressError" role="alert"></p></form>`:'';
-  return `<div class="container store-page da-page">${stepper('address')}<header class="da-title">${addrIcon('pin')}<div><h1>Delivery Address</h1><p>Choose a delivery address for your order.</p></div></header>
+  return `<div class="container store-page da-page">${manage?'<a class="ac-back-link" href="#/account">← Back to Account</a>':stepper('address')}<header class="da-title">${addrIcon('pin')}<div><h1>${manage?'My Addresses':'Delivery Address'}</h1><p>${manage?'Manage your saved delivery addresses.':'Choose a delivery address for your order.'}</p></div></header>
    <section class="da-card"><h2>${addrIcon('book')} Saved Addresses</h2>
     ${!authKnown?'<p>Checking your account…</p>':!logged?'<p>Sign in with your mobile number to save and reuse delivery addresses securely.</p><a href="#/account" class="da-primary" data-address-login>Sign In with OTP →</a>':addressStatus==='loading'?'<p>Loading your saved addresses…</p>':addressStatus==='error'?'<p>Could not load your saved addresses.</p><button type="button" class="da-outline" data-address-retry>Try Again</button>':cards+(hasAddresses&&!showForm?`<button type="button" class="da-outline da-add-address" data-address-new>${addrIcon('plus')} Add New Address</button>`:'')+addressForm}
-   </section><section class="da-card da-summary" id="deliverySummary">${deliverySummaryContent()}</section>
-   ${ready&&currentAddress()&&!showForm?'<button class="da-primary da-next" data-address-next>Continue to Payment <span>→</span></button>':''}
+   </section>${manage?'':'<section class="da-card da-summary" id="deliverySummary">'+deliverySummaryContent()+'</section>'}
+   ${!manage&&ready&&currentAddress()&&!showForm?'<button class="da-primary da-next" data-address-next>Continue to Payment <span>→</span></button>':''}
   </div>`;
 }
 // UPI is intentionally the only live payment method. All payment statuses are
@@ -352,7 +353,57 @@ async function restoreUpiOrder(){
     }catch(e){console.warn('Unable to restore order',e.code||e.message);}
   }
 }
-function accountPage() {
+const acIcon=(k)=>'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'+({
+ user:'<circle cx="12" cy="7" r="4"/><path d="M4 22v-2a8 8 0 0 1 16 0v2"/>',avatar:'<circle cx="12" cy="7" r="4" fill="currentColor" stroke="none"/><path d="M3 21v-2a9 9 0 0 1 18 0v2Z" fill="currentColor" stroke="none"/>',box:'<path d="m12 2 9 5v10l-9 5-9-5V7Z M3 7l9 5 9-5m-9 5v10M7.5 4.5l9 5"/>',heart:'<path d="M20.8 8.4c0 4.5-8.8 10.2-8.8 10.2S3.2 12.9 3.2 8.4a4.9 4.9 0 0 1 8.8-2.9 4.9 4.9 0 0 1 8.8 2.9Z"/>',tag:'<path d="M3 3h8l10 10-8 8L3 11Z"/><circle cx="7.5" cy="7.5" r="1"/>',wallet:'<rect x="2" y="5" width="19" height="15" rx="3"/><path d="M21 10h-6a3 3 0 0 0 0 6h6M16 13h1"/>',pin:'<path d="M20 10c0 6-8 12-8 12S4 16 4 10a8 8 0 1 1 16 0Z"/><circle cx="12" cy="10" r="3"/>',card:'<rect x="2" y="4" width="20" height="16" rx="3"/><path d="M2 9h20M6 15h4"/>',bank:'<path d="m2 8 10-6 10 6H2Zm1 13h18M5 10v8m5-8v8m4-8v8m5-8v8"/>',returns:'<path d="M3 10a9 9 0 1 1 2 8M3 4v6h6m3-2 4 2v5l-4 2-4-2v-5Z"/>',support:'<path d="M3 13v-2a9 9 0 0 1 18 0v2M3 12h4v7H3Zm14 0h4v7h-4Zm4 7c0 3-3 3-7 3"/>',info:'<circle cx="12" cy="12" r="10"/><path d="M12 11v6m0-10v1"/>',settings:'<circle cx="12" cy="12" r="3"/><path d="m10 2-1 3-3 1-3-1-2 4 3 2v3l-2 2 2 4 3-1 3 1 1 3h4l1-3 3-1 3 1 2-4-3-2v-3l2-2-2-4-3 1-3-1-1-3Z"/>',bell:'<path d="M5 10a7 7 0 0 1 14 0v5l2 3H3l2-3Zm4 11a3 3 0 0 0 6 0"/>',cart:'<path d="M2 3h3l3 13h12l3-10H6"/><circle cx="10" cy="21" r="1"/><circle cx="19" cy="21" r="1"/>',home:'<path d="m2 11 10-9 10 9M5 10v11h14V10M10 21v-7h4v7"/>',grid:'<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',out:'<path d="M10 3H3v18h7m-1-9h13m-5-5 5 5-5 5"/>',edit:'<path d="m15 4 5 5M4 20l5-1L21 7l-5-5L4 14Z"/>'
+}[k]||'')+'</svg>';
+async function loadMyOrders(){
+  const uid=signedInUser?.uid;if(!uid)return;
+  const req=++myOrderRequest;myOrderStatus='loading';
+  try{const result=await readMyOrders(uid);if(req!==myOrderRequest||signedInUser?.uid!==uid)return;myOrders=result;myOrderStatus='ready';}
+  catch(e){if(req!==myOrderRequest||signedInUser?.uid!==uid)return;myOrderStatus='error';}
+  if(location.hash==='#/account'||location.hash==='#/account/orders')render();
+}
+const acStatus={payment_pending:'Awaiting payment',verification_pending:'Bank verification pending',paid:'Payment confirmed',rejected:'Payment not verified',cancelled:'Cancelled'};
+function accountDashboard(section=''){
+  if(!section){
+    const tiles=[['user','My Profile','profile'],['pin','Addresses','addresses'],['card','Payment Methods','payments'],['bank','Bank Details (Refund)','refund-bank'],['returns','Returns & Refunds','returns'],['support','Help & Support','support'],['info','About Us','about'],['settings','Account Settings','settings']];
+    const stats=[['box','My Orders',myOrderStatus==='ready'?myOrders.length:'—','orders'],['heart','Wishlist',catalogStatus==='ready'?state.favs.filter(id=>!!item(id)).length:'—','wishlist'],['tag','Coupons','Not active','coupons'],['wallet','Wallet','Not active','wallet']];
+    return `<section class="ac-screen"><div class="ac-hero"><a class="ac-top-back" href="index.html">← Back to Store</a><div class="ac-top-actions"><a href="#/account/orders" aria-label="Order updates">${acIcon('bell')}</a><a href="#/cart" aria-label="Cart">${acIcon('cart')}${count()?`<b>${count()}</b>`:''}</a></div><div class="auth-brand"><img src="${asset('assets/images/woodpeck-brandmark.webp')}" alt="Woodpeck logo"><div class="auth-brand-name">Woodpeck</div><div class="auth-brand-sub"><span></span> INTERNATIONAL <span></span></div><p>Furniture &amp; Wood Products</p></div></div>
+    <div class="ac-card"><div class="ac-profile"><a href="#/account/profile" class="ac-avatar" aria-label="Edit profile">${acIcon('avatar')}<span>${acIcon('edit')}</span></a><div class="ac-profile-text"><h1>Welcome${signedInUser.displayName?', '+esc(signedInUser.displayName):''}!</h1><p>Your Woodpeck Account</p><span class="ac-verified">${payIcon('shield')} Mobile Verified</span><strong class="ac-mobile">${esc(signedInUser.phoneNumber||'')}</strong></div></div>
+    <div class="ac-stats">${stats.map(([ico,title,value,target])=>`<a href="${target==='wishlist'?'#/wishlist':'#/account/'+target}">${acIcon(ico)}<span>${title}</span><strong class="${typeof value==='string'&&value==='Not active'?'ac-inactive':''}">${esc(value)}</strong></a>`).join('')}</div>
+    <a class="ac-track" href="#/account/orders">${acIcon('box')}<span>Track My Order</span><b>›</b></a>
+    <div class="ac-tiles">${tiles.map(([ico,title,target])=>`<a href="#/account/${target}">${acIcon(ico)}<span>${title}</span></a>`).join('')}</div>
+    <div class="ac-shop-banner"><img src="${asset('assets/images/armchair.jpg')}" alt=""><strong>Shop for Premium Furniture &amp; Wood Products</strong><a href="#/shop">Continue Shopping ›</a></div>
+    <button class="ac-signout" id="firebaseLogout">${acIcon('out')} Sign Out</button></div>
+    <nav class="ac-bottom" aria-label="Customer navigation">${[['home','Home','index.html'],['grid','Categories','#/shop'],['tag','Deals','#/account/deals'],['cart','Cart','#/cart'],['user','Account','#/account']].map(([ico,title,url])=>`<a href="${url}" class="${title==='Account'?'active':''}">${acIcon(ico)}<span>${title}</span>${title==='Cart'&&count()?`<b>${count()}</b>`:''}</a>`).join('')}</nav></section>`;
+  }
+  if(section==='addresses')return addressPage(true);
+  let title='',body='';
+  if(section==='orders'){
+    title='My Orders';body=`<div class="ac-subheading"><p>View your orders and bank-verified payment status.</p><button class="da-outline" data-refresh-orders>Refresh</button></div>${myOrderStatus==='loading'||myOrderStatus==='idle'?'<p>Loading orders…</p>':myOrderStatus==='error'?'<p>Unable to load your orders. Please refresh.</p>':myOrders.length?myOrders.map(o=>`<article class="ac-order"><div><strong>#${esc(o.id)}</strong><span>${o.createdAt?.toDate?esc(o.createdAt.toDate().toLocaleString('en-IN',{timeZone:'Asia/Kolkata'})):''}</span></div><b class="ac-order-status">${esc(acStatus[o.status]||'Status unavailable')}</b><div>${(o.items||[]).map(i=>`<p>${esc(i.name)} × ${esc(i.qty)}</p>`).join('')}</div><div class="ac-order-total"><strong>${money(o.total)}</strong><button class="da-outline" data-open-order="${esc(o.id)}">View Order</button></div></article>`).join(''):'<p>No orders yet.</p><a class="da-primary" href="#/shop">Continue Shopping</a>'}`;
+  }else if(section==='profile'){
+    title='My Profile';body=`<form id="customerProfileForm" class="address-form da-form"><label>Full Name<input name="fullName" autocomplete="name" required minlength="2" maxlength="70" value="${esc(signedInUser.displayName||'')}"></label><label>Verified Mobile Number<input value="${esc(signedInUser.phoneNumber||'')}" readonly></label><p class="da-fine">Your mobile number is your verified login identity.</p><button class="da-primary" type="submit">Save Profile</button><p id="profileMessage" role="status"></p></form>`;
+  }else if(section==='payments'){
+    title='Payment Methods';body='<p>UPI payments are made directly through your UPI app. Bank transfer is available when the merchant enables verified bank details.</p><p>Card, wallet and EMI options require a payment provider. No card or UPI PIN is stored here.</p><a class="da-primary" href="#/cart">View Cart</a>';
+  }else if(section==='refund-bank'){
+    title='Bank Details (Refund)';body='<p>Online refund bank-detail collection is not enabled. If a refund is required, contact the merchant with your order reference using an approved support channel. Never share your PIN or OTP.</p><a class="da-outline" href="#/contact">Help & Support</a>';
+  }else if(section==='returns'){
+    title='Returns & Refunds';body='<p>Online return and refund requests are not enabled. Review your order and contact the merchant for the applicable policy.</p><a class="da-outline" href="#/account/orders">My Orders</a>';
+  }else if(section==='support'){
+    title='Help & Support';body='<p>For payment or delivery questions, keep your order ID and transaction reference ready.</p><a class="da-primary" href="#/account/orders">My Orders</a><a class="da-outline" href="#/contact">Contact & Policies</a>';
+  }else if(section==='about'){
+    title='About Us';body='<p>Woodpeck International — Furniture & Wood Products.</p><a class="da-primary" href="#/shop">Explore Collection</a>';
+  }else if(section==='settings'){
+    title='Account Settings';body='<p>Your account is secured by verified mobile OTP.</p><a class="da-outline" href="#/account/profile">Edit Profile</a><a class="da-outline" href="#/account/addresses">Manage Addresses</a><button class="da-primary" id="firebaseLogout">Sign Out</button>';
+  }else if(section==='coupons'||section==='wallet'){
+    title=section==='coupons'?'Coupons':'Wallet';body='<p>This feature is not currently enabled by the store.</p><a class="da-primary" href="#/shop">Continue Shopping</a>';
+  }else if(section==='deals'){
+    title='Deals';const deals=products.filter(p=>p.compareAt>p.price);body=deals.length?'<div class="store-product-grid">'+deals.map(productCard).join('')+'</div>':'<p>No current offers.</p><a class="da-primary" href="#/shop">View All Products</a>';
+  }else{title='Account';body='<p>Choose an option from your account dashboard.</p>';}
+  return `<div class="container store-page ac-subpage"><a class="ac-back-link" href="#/account">← Back to Account</a><h1>${esc(title)}</h1><section class="da-card ac-subcard">${body}</section></div>`;
+}
+function accountPage(section='') {
+  if(signedInUser)return accountDashboard(section);
   const isRegister = authMode === 'register';
   const phoneIcon = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7.2 2.8 5 2.4c-1.3-.2-2.5.6-2.8 2-1.4 7.9 7.5 16.9 15.4 17.5 1.4.1 2.4-.9 2.7-2.1l.5-2.3-5-2.6-2.5 2.1a16 16 0 0 1-6.4-6.4L9 8.1z"/></svg>`;
   const messageIcon = `<svg class="auth-main-icon" viewBox="0 0 100 115" fill="none" aria-hidden="true"><rect x="17" y="4" width="65" height="107" rx="13" stroke="currentColor" stroke-width="5"/><path d="M41 13h17M42 100h17" stroke="currentColor" stroke-linecap="round" stroke-width="5"/><path d="M36 40h46a10 10 0 0 1 10 10v16a10 10 0 0 1-10 10H63L51 87V76H36a10 10 0 0 1-10-10V50a10 10 0 0 1 10-10Z" fill="#E56C10"/><text x="58" y="64" text-anchor="middle" fill="white" font-size="25" font-weight="900" letter-spacing="2">****</text></svg>`;
@@ -402,12 +453,13 @@ function render() {
     case 'wishlist': body=wishlistPage();break;
     case 'address': body=addressPage();break;
     case 'payment': body=paymentPage();break;
-    case 'account': body=accountPage();break;
+    case 'account': body=accountPage(route[1]||'');break;
     case 'contact': body=contactPage();break;
     default: body=`<div class="container store-page">${empty('Page not found','Explore our furniture collection.')}</div>`;
   }
   clearRecaptcha();
-  document.body.classList.toggle('auth-view',kind==='account');
+  document.body.classList.toggle('auth-view',kind==='account'&&(!signedInUser||!route[1]));
+  document.body.classList.toggle('customer-dashboard',kind==='account'&&!!signedInUser&&!route[1]);
   document.body.classList.toggle('product-view',kind==='product');
   document.body.classList.toggle('address-view',kind==='address');
   document.body.classList.toggle('payment-view',kind==='payment');
@@ -483,6 +535,12 @@ document.addEventListener('submit',async (event)=>{
     finally{if(btn.isConnected){btn.disabled=false;btn.textContent='Submit for bank verification';}}
     return;
   }
+  if(event.target.id==='customerProfileForm'){
+    event.preventDefault();const f=event.target;if(!signedInUser||!f.reportValidity())return;
+    const btn=f.querySelector('button');btn.disabled=true;
+    try{await registerCustomerName(signedInUser,f.elements.fullName.value);toast('Profile saved');go('account');}
+    catch(e){const msg=$('profileMessage');if(msg)msg.textContent=e.message;}finally{btn.disabled=false;}return;
+  }
   if(event.target.id==='deliveryForm'){
     event.preventDefault();
     const form=event.target,uid=signedInUser?.uid;
@@ -505,6 +563,12 @@ document.addEventListener('submit',async (event)=>{
   }
 });
 document.addEventListener('click',async event=>{
+  if(event.target.closest('[data-refresh-orders]')){void loadMyOrders();render();return;}
+  const openOrder=event.target.closest('[data-open-order]');
+  if(openOrder&&signedInUser){
+    const uid=signedInUser.uid;openOrder.disabled=true;
+    try{const order=await fetchUpiOrder(openOrder.dataset.openOrder);if(!order||order.uid!==uid||signedInUser?.uid!==uid)throw new Error('Order not available.');state.activeOrder=order;localStorage.setItem('woodpeck-current-order',JSON.stringify({id:order.id,uid}));go('payment');}catch(e){toast('Unable to open order.');}finally{openOrder.disabled=false;}return;
+  }
   const method=event.target.closest('[data-payment-method]');if(method&&!method.disabled&&!state.activeOrder&&!paymentCreating){state.payment=method.dataset.paymentMethod;render();return;}
   const copy=event.target.closest('[data-copy-pay]');if(copy){try{await navigator.clipboard.writeText(copy.dataset.copyPay);toast('Copied');}catch(e){toast('Unable to copy. Select and copy the value.');}return;}
   const create=event.target.closest('#createUpiOrder');
@@ -535,7 +599,7 @@ document.addEventListener('click',async event=>{
     state.activeOrder=null;localStorage.removeItem('woodpeck-current-order');render();
   }
 });
-window.addEventListener('hashchange',()=>{state.review=false;render();if((location.hash.startsWith('#/address')||location.hash.startsWith('#/payment'))&&addressUid)void loadDeliveryQuote(addressUid);});
+window.addEventListener('hashchange',()=>{state.review=false;render();if(signedInUser&&['#/account','#/account/orders'].includes(location.hash))void loadMyOrders();if((location.hash.startsWith('#/address')||location.hash.startsWith('#/payment'))&&addressUid)void loadDeliveryQuote(addressUid);});
 window.addEventListener('storage',(event)=>{
   if(['woodpeck-demo-cart','woodpeck-demo-wishlist'].includes(event.key)){
     state.cart=read('woodpeck-demo-cart',{});
@@ -627,8 +691,9 @@ onLoginChange(user => {
   const uid=user?.uid||null;
   const changed=uid!==addressUid;
   if(changed){
+    myOrderRequest++;myOrders=[];myOrderStatus='idle';
     addressUid=uid;state.addresses=[];state.selectedAddress=null;state.addAddressForm=false;editingAddress=null;shippingQuote=null;bankAvailable=false;bankChecked=false;state.payment='upi';addressStatus=uid?'loading':'idle';
-    if(uid){void loadAddressBook(uid);void loadDeliveryQuote(uid);}
+    if(uid){void loadAddressBook(uid);void loadDeliveryQuote(uid);void loadMyOrders();}
   }
   if(!user||(state.activeOrder&&state.activeOrder.uid!==uid))state.activeOrder=null;
   if(['#/account','#/payment','#/address'].some(route=>location.hash.startsWith(route))&&(changed||!$('deliveryForm')))render();
@@ -649,7 +714,8 @@ watchPublishedProducts((cloudItems, fromCache) => {
   }
   const route=location.hash.replace(/^#\/?/,'').split('/')[0];
   if(route==='payment'&&$('upiReferenceForm'))return;
-  if(route==='address'&&$('deliveryForm')){if($('deliverySummary'))$('deliverySummary').innerHTML=deliverySummaryContent();}else if(['shop','product','wishlist','cart','address','payment'].includes(route)||!route)render();
+  if(route==='account'&&location.hash==='#/account'&&signedInUser){render();return;}
+  if((route==='address'||route==='account')&&$('deliveryForm')){if($('deliverySummary'))$('deliverySummary').innerHTML=deliverySummaryContent();}else if(['shop','product','wishlist','cart','address','payment'].includes(route)||!route)render();
 },error=>{
   catalogStatus='error';
   console.warn('Cloud product catalog is not available.',error.code||error.message);

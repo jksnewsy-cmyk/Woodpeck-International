@@ -40,7 +40,7 @@ service cloud.firestore {
     match /orders/{orderId} {
       allow get: if isAdmin() ||
         (request.auth != null && resource.data.uid == request.auth.uid);
-      allow list: if isAdmin();
+      allow list: if isAdmin() || (request.auth != null && resource.data.uid == request.auth.uid);
       allow create, update, delete: if false;
     }
     match /paymentReferences/{referenceId} {
