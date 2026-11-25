@@ -1,5 +1,5 @@
 import {getFunctions,httpsCallable} from 'firebase/functions';
-import {getFirestore, doc, getDoc, collection, query, orderBy, limit, onSnapshot, setDoc, serverTimestamp} from 'firebase/firestore';
+import {getFirestore, doc, getDoc, getDocsFromServer, getDocFromServer, collection, query, orderBy, limit, onSnapshot, setDoc, serverTimestamp} from 'firebase/firestore';
 import {auth} from './firebase-catalog.js';
 
 const app=auth.app;
@@ -25,4 +25,19 @@ export function updateCheckoutSettings({enabled,shippingCharge}){
   return setDoc(doc(db,'settings/checkout'),{
     enabled:Boolean(enabled),shippingCharge:Number(shippingCharge),taxIncluded:true,updatedAt:serverTimestamp()
   });
+}
+
+export async function readCustomerAddresses(uid){
+  if(auth.currentUser?.uid!==uid)throw new Error('Sign in required.');
+  const result=await getDocsFromServer(collection(db,'customers',uid,'addresses'));
+  return result.docs.map(d=>({...d.data(),id:d.id}));
+}
+export async function writeCustomerAddress(uid,id,data){
+  if(auth.currentUser?.uid!==uid)throw new Error('Sign in required.');
+  await setDoc(doc(db,'customers',uid,'addresses',id),{...data,updatedAt:serverTimestamp()});
+}
+export async function readDeliveryQuote(){
+  const result=await getDocFromServer(doc(db,'settings/checkout'));
+  const data=result.data();
+  return data?.enabled===true&&data.taxIncluded===true&&Number.isSafeInteger(data.shippingCharge)&&data.shippingCharge>=0&&data.shippingCharge<=100000?data.shippingCharge:null;
 }

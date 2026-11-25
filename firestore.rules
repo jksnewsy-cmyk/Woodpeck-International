@@ -46,8 +46,29 @@ service cloud.firestore {
     match /paymentReferences/{referenceId} {
       allow read, write: if false;
     }
+    // Each verified customer can access only their own saved address documents.
+    match /customers/{uid}/addresses/{addressId} {
+      function ownAddress() {
+        return request.auth != null && request.auth.uid == uid &&
+          request.auth.token.phone_number is string;
+      }
+      allow get, list, delete: if ownAddress();
+      allow create, update: if ownAddress() &&
+        request.resource.data.keys().hasOnly(['name','phone','line1','line2','city','state','pin','label','updatedAt']) &&
+        request.resource.data.keys().hasAll(['name','phone','line1','line2','city','state','pin','label','updatedAt']) &&
+        request.resource.data.name is string && request.resource.data.name.size() >= 2 && request.resource.data.name.size() <= 80 &&
+        request.resource.data.phone is string && request.resource.data.phone.matches('^[6-9][0-9]{9}$') &&
+        request.resource.data.line1 is string && request.resource.data.line1.size() >= 5 && request.resource.data.line1.size() <= 150 &&
+        request.resource.data.line2 is string && request.resource.data.line2.size() <= 100 &&
+        request.resource.data.city is string && request.resource.data.city.size() >= 2 && request.resource.data.city.size() <= 70 &&
+        request.resource.data.state is string && request.resource.data.state.size() >= 2 && request.resource.data.state.size() <= 70 &&
+        request.resource.data.pin is string && request.resource.data.pin.matches('^[1-9][0-9]{5}$') &&
+        request.resource.data.label in ['Home','Work','Other'] &&
+        request.resource.data.updatedAt == request.time;
+    }
     match /settings/checkout {
-      allow get: if isAdmin();
+      // Signed-in shoppers can read the same configured delivery quote; only admins may write it.
+      allow get: if isAdmin() || (request.auth != null && request.auth.token.phone_number is string);
       allow list: if false;
       allow create, update: if isAdmin() &&
         request.resource.data.keys().hasOnly(['enabled','shippingCharge','taxIncluded','updatedAt']) &&

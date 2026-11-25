@@ -1,5 +1,5 @@
 import QRCode from 'qrcode';
-import {createUpiOrder,submitUpiReference,fetchUpiOrder} from './checkout-api.js';
+import {createUpiOrder,submitUpiReference,fetchUpiOrder,readCustomerAddresses,writeCustomerAddress,readDeliveryQuote} from './checkout-api.js';
 import {
   firebaseReady, signedInUser, onLoginChange,
   sendPhoneCode, confirmPhoneCode, logoutPhoneUser, registerCustomerName,
@@ -9,6 +9,7 @@ let phoneLoginStep = 'number';
 let lastLoginPhone = '';
 let authMode = 'login';
 let registrationName = '';
+let addressUid=null,addressStatus='idle',shippingQuote=null,authKnown=false,editingAddress=null,addressSaving=false;
 
 import './products.js';
 import { watchPublishedProducts } from './firebase-catalog.js';
@@ -26,8 +27,8 @@ const read = (key, fallback) => { try { return JSON.parse(localStorage.getItem(k
 const state = {
   cart: read('woodpeck-demo-cart', {}),
   favs: read('woodpeck-demo-wishlist', []),
-  addresses: read('woodpeck-demo-addresses', []),
-  selectedAddress: read('woodpeck-demo-selected-address', null),
+  addresses: [],
+  selectedAddress: null,
   search: '',
   sort: 'featured',
   payment: 'upi',
@@ -45,13 +46,30 @@ const save = () => {
   try {
     localStorage.setItem('woodpeck-demo-cart', JSON.stringify(state.cart));
     localStorage.setItem('woodpeck-demo-wishlist', JSON.stringify(state.favs));
-    localStorage.setItem('woodpeck-demo-addresses', JSON.stringify(state.addresses));
-    localStorage.setItem('woodpeck-demo-selected-address', JSON.stringify(state.selectedAddress));
+    if(addressUid && state.selectedAddress)localStorage.setItem('woodpeck-selected-address-'+addressUid,JSON.stringify(state.selectedAddress));
   } catch (err) { console.warn('Browser storage unavailable', err); }
 };
 const count = () => Object.entries(state.cart).filter(([id])=>!!item(id)).reduce((sum, [,qty]) => sum + qty, 0);
 const subtotal = () => Object.entries(state.cart).reduce((sum, [id,qty]) => sum + (item(id)?.price || 0) * qty, 0);
-const currentAddress = () => state.addresses.find((address) => address.id === state.selectedAddress);
+const currentAddress = () => signedInUser?.uid===addressUid?state.addresses.find(address=>address.id===state.selectedAddress):null;
+function chooseDefaultAddress(){
+  if(!state.addresses.some(a=>a.id===state.selectedAddress))state.selectedAddress=state.addresses[0]?.id||null;
+}
+async function loadAddressBook(uid){
+  addressStatus='loading';
+  try{
+    const list=await readCustomerAddresses(uid);
+    if(addressUid!==uid||signedInUser?.uid!==uid)return;
+    state.addresses=list.sort((a,b)=>(b.updatedAt?.seconds||0)-(a.updatedAt?.seconds||0));
+    state.selectedAddress=read('woodpeck-selected-address-'+uid,null);
+    chooseDefaultAddress();addressStatus='ready';
+  }catch(e){if(addressUid!==uid)return;addressStatus='error';}
+  if(location.hash.startsWith('#/address')||location.hash.startsWith('#/payment'))render();
+}
+async function loadDeliveryQuote(uid){
+  try{const quote=await readDeliveryQuote();if(addressUid===uid)shippingQuote=quote;}catch(e){if(addressUid===uid)shippingQuote=null;}
+  if(addressUid===uid&&$('deliverySummary'))$('deliverySummary').innerHTML=deliverySummaryContent();
+}
 let toastTimer;
 function toast(message) {
   const el = $('storeToast'); el.textContent = message; el.hidden = false;
@@ -212,34 +230,41 @@ function wishlistPage() {
 }
 function stepper(which) {
   return `<nav class="checkout-steps" aria-label="Checkout steps">
-    <div class="done"><span>1</span> Shopping Cart</div><i></i><div class="${which==='address'?'current':'done'}"><span>2</span> Delivery Address</div><i></i><div class="${which==='payment'?'current':''}"><span>3</span> Payment</div>
+    <div class="done"><span>✓</span> Cart</div><i></i><div class="${which==='address'?'current':'done'}"><span>2</span> Delivery Address</div><i></i><div class="${which==='payment'?'current':''}"><span>3</span> Payment</div>
   </nav>`;
 }
-function addressPage() {
-  if (!count()) return cartPage();
-  const hasAddresses=state.addresses.length>0;
-  const showForm=state.addAddressForm || !hasAddresses;
-  return `<div class="container store-page">${breadcrumb(['Checkout','Delivery Address'])}${head('CHECKOUT','Delivery Address','Where should we deliver your furniture?')}
-    ${stepper('address')}<div class="store-checkout-layout"><section class="checkout-main">
-    <h2 class="checkout-panel-title">Select Delivery Address</h2>
-    <p class="inline-disclaimer">Preview only. Address details are saved in this browser, not sent to Woodpeck International.</p>
-    ${hasAddresses?`<div class="address-grid">${state.addresses.map(a=>`<label class="address-card ${state.selectedAddress===a.id?'active':''}">
-      <input type="radio" name="savedAddress" value="${a.id}" ${state.selectedAddress===a.id?'checked':''}/>
-      <strong>${esc(a.name)}</strong><span>${esc(a.line1)}${a.line2?', '+esc(a.line2):''}</span>
-      <span>${esc(a.city)}, ${esc(a.state)} - ${esc(a.pin)}</span><span>Mobile: ${esc(a.phone)}</span>
-    </label>`).join('')}</div><div class="address-buttons"><button class="store-btn ghost" data-address-new>+ Add New Address</button><button class="store-btn primary" data-address-next>Continue to Payment →</button></div>`:''}
-    ${showForm?`<form id="deliveryForm" class="address-form">
-      <h2>${hasAddresses?'Add another address':'Add Delivery Address'}</h2>
-      <div class="form-pair"><label>Full Name <input name="name" autocomplete="name" required minlength="2" maxlength="80" placeholder="Full name"/></label>
-      <label>Mobile Number <input name="phone" inputmode="numeric" autocomplete="tel" pattern="[0-9]{10}" minlength="10" maxlength="10" required placeholder="10-digit number"/></label></div>
-      <label>House No. / Street Address <input name="line1" autocomplete="address-line1" required minlength="5" maxlength="150" placeholder="House number, road, area"/></label>
-      <label>Landmark (Optional) <input name="line2" maxlength="100" placeholder="Near landmark"/></label>
-      <div class="form-pair"><label>City / Town <input name="city" autocomplete="address-level2" required maxlength="70" placeholder="City"/></label>
-      <label>State <select name="state" required><option value="">Select State</option><option>Tamil Nadu</option><option>Kerala</option><option>Karnataka</option><option>Andhra Pradesh</option><option>Telangana</option><option>Maharashtra</option><option>Delhi</option><option>Other State / UT</option></select></label></div>
-      <label>PIN Code <input name="pin" inputmode="numeric" autocomplete="postal-code" pattern="[1-9][0-9]{5}" minlength="6" maxlength="6" required placeholder="6-digit PIN code"/></label>
-      <button class="store-btn primary" type="submit">Save Address & Continue →</button>
-    </form>`:''}
-    </section>${cartSummary('Back to Cart','#/cart')}</div></div>`;
+const addrIcon=(name)=>'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'+({
+ pin:'<path d="M20 10c0 6-8 12-8 12S4 16 4 10a8 8 0 1 1 16 0Z"/><circle cx="12" cy="10" r="3"/>',
+ book:'<rect x="5" y="3" width="15" height="18" rx="2"/><path d="M2 5v14m7-3c0-3 6-3 6 0"/><circle cx="12" cy="9" r="2"/>',
+ cart:'<path d="M2 3h3l3 13h12l3-10H6"/><circle cx="10" cy="21" r="1"/><circle cx="19" cy="21" r="1"/>',
+ plus:'<circle cx="12" cy="12" r="9"/><path d="M12 7v10M7 12h10"/>',
+ edit:'<path d="m15 4 5 5M4 20l5-1L21 7l-5-5L4 14Z"/>',
+ phone:'<path d="M5 3 2 6c0 8 8 16 16 16l4-4-5-4-3 3c-4-2-6-4-8-8l3-3Z"/>'
+}[name]||'')+'</svg>';
+const indianStates=['Andaman and Nicobar Islands','Andhra Pradesh','Arunachal Pradesh','Assam','Bihar','Chandigarh','Chhattisgarh','Dadra and Nagar Haveli and Daman and Diu','Delhi','Goa','Gujarat','Haryana','Himachal Pradesh','Jammu and Kashmir','Jharkhand','Karnataka','Kerala','Ladakh','Lakshadweep','Madhya Pradesh','Maharashtra','Manipur','Meghalaya','Mizoram','Nagaland','Odisha','Puducherry','Punjab','Rajasthan','Sikkim','Tamil Nadu','Telangana','Tripura','Uttar Pradesh','Uttarakhand','West Bengal'];
+function deliverySummaryContent(){
+  return `<h2>${addrIcon('cart')} Order Summary</h2><div class="da-items">${Object.entries(state.cart).filter(([id])=>item(id)).map(([id,qty])=>{const p=item(id);return `<div class="da-item"><img src="${esc(asset(p.image))}" alt=""><div><strong>${esc(p.name)}</strong><small>Qty: ${qty}</small></div><b>${money(p.price*qty)}</b></div>`;}).join('')}</div><div class="da-total-line"><span>Item Total</span><strong>${money(subtotal())}</strong></div><div class="da-total-line"><span>Shipping</span><strong>${shippingQuote===null?'To be confirmed':money(shippingQuote)}</strong></div><div class="da-payable"><span>${shippingQuote===null?'Item Subtotal':'Total Payable'}</span><strong>${money(subtotal()+(shippingQuote??0))}</strong></div><p class="da-fine">Final amount and stock verified before UPI payment.</p>`;
+}
+function addressPage(){
+  if(!count())return cartPage();
+  const logged=!!signedInUser&&addressUid===signedInUser.uid,ready=logged&&addressStatus==='ready';
+  const hasAddresses=ready&&state.addresses.length>0,showForm=ready&&(state.addAddressForm||!hasAddresses);
+  const a=editingAddress?state.addresses.find(x=>x.id===editingAddress)||{}:{};
+  const field=(key,fallback='')=>esc(a[key]??fallback);
+  const cards=hasAddresses?state.addresses.map(a=>`<div class="da-address ${state.selectedAddress===a.id?'selected':''}"><label><input type="radio" name="savedAddress" value="${esc(a.id)}" ${state.selectedAddress===a.id?'checked':''}><div class="da-address-text"><strong>${esc(a.name)}</strong><span>${esc(a.line1)}${a.line2?', '+esc(a.line2):''}</span><span>${esc(a.city)}, ${esc(a.state)} - ${esc(a.pin)}</span><span class="da-phone">${addrIcon('phone')} +91 ${esc(a.phone)}</span></div></label><div class="da-address-actions"><span class="da-address-type">${esc(a.label||'Home')}</span><button type="button" data-address-edit="${esc(a.id)}" aria-label="Edit address">${addrIcon('edit')}</button></div></div>`).join(''):'';
+  const addressForm=showForm?`<form id="deliveryForm" class="address-form da-form"><h3>${editingAddress?'Edit Address':'Add New Address'}</h3>
+    <div class="form-pair"><label>Full Name *<input name="name" autocomplete="name" required minlength="2" maxlength="80" value="${field('name',signedInUser?.displayName||'')}" placeholder="Enter full name"></label><label>Mobile Number *<input name="phone" inputmode="numeric" autocomplete="tel-national" pattern="[6-9][0-9]{9}" minlength="10" maxlength="10" required value="${field('phone',String(signedInUser?.phoneNumber||'').replace(/^\+91/,''))}" placeholder="10-digit number"></label></div>
+    <label>House No. / Street Address *<input name="line1" autocomplete="address-line1" required minlength="5" maxlength="150" value="${field('line1')}" placeholder="House number, street, area"></label>
+    <label>Landmark (Optional)<input name="line2" autocomplete="address-line2" maxlength="100" value="${field('line2')}" placeholder="Nearby landmark"></label>
+    <div class="form-pair"><label>City / Town *<input name="city" autocomplete="address-level2" required minlength="2" maxlength="70" value="${field('city')}" placeholder="City / town"></label><label>PIN Code *<input name="pin" inputmode="numeric" autocomplete="postal-code" pattern="[1-9][0-9]{5}" maxlength="6" minlength="6" required value="${field('pin')}" placeholder="6-digit PIN code"></label></div>
+    <div class="form-pair"><label>State / Union Territory *<select name="state" autocomplete="address-level1" required><option value="">Select State</option>${indianStates.map(st=>`<option ${a.state===st?'selected':''}>${esc(st)}</option>`).join('')}</select></label><label>Address Type<select name="label">${['Home','Work','Other'].map(t=>`<option ${(a.label||'Home')===t?'selected':''}>${t}</option>`).join('')}</select></label></div>
+    <p class="da-fine">Saved to your verified mobile account for future orders.</p><div class="da-form-actions">${hasAddresses?'<button type="button" class="da-outline" data-address-cancel>Cancel</button>':''}<button type="submit" class="da-primary" ${addressSaving?'disabled':''}>Save Address</button></div><p id="addressError" role="alert"></p></form>`:'';
+  return `<div class="container store-page da-page">${stepper('address')}<header class="da-title">${addrIcon('pin')}<div><h1>Delivery Address</h1><p>Choose a delivery address for your order.</p></div></header>
+   <section class="da-card"><h2>${addrIcon('book')} Saved Addresses</h2>
+    ${!authKnown?'<p>Checking your account…</p>':!logged?'<p>Sign in with your mobile number to save and reuse delivery addresses securely.</p><a href="#/account" class="da-primary" data-address-login>Sign In with OTP →</a>':addressStatus==='loading'?'<p>Loading your saved addresses…</p>':addressStatus==='error'?'<p>Could not load your saved addresses.</p><button type="button" class="da-outline" data-address-retry>Try Again</button>':cards+(hasAddresses&&!showForm?`<button type="button" class="da-outline da-add-address" data-address-new>${addrIcon('plus')} Add New Address</button>`:'')+addressForm}
+   </section><section class="da-card da-summary" id="deliverySummary">${deliverySummaryContent()}</section>
+   ${ready&&currentAddress()&&!showForm?'<button class="da-primary da-next" data-address-next>Continue to Payment <span>→</span></button>':''}
+  </div>`;
 }
 // UPI is intentionally the only live payment method. All payment statuses are
 // server controlled; no buyer action can mark an order paid.
@@ -262,6 +287,7 @@ function orderSummary(order){
 }
 function paymentPage(){
   if(!count()&&!state.activeOrder){go('cart');return '';}
+  if(signedInUser&&addressStatus==='loading'&&!state.activeOrder)return '<div class="container store-page">'+head('CHECKOUT','Loading your address…')+'</div>';
   const address=currentAddress();
   if(!address&&!state.activeOrder){go('address');return '';}
   const order=state.activeOrder;
@@ -366,7 +392,7 @@ function contactPage() {
     <div class="policy-grid"><section><h2>Contact Woodpeck International</h2><p>Official phone, email, office address and WhatsApp support links will be added after the client approves them.</p></section>
     <section><h2>Shipping & Delivery</h2><p>Delivery areas, shipping charges, lead time and installation costs are not yet configured. Final charges will be displayed before a live payment is allowed.</p></section>
     <section><h2>Returns & Refunds</h2><p>The store must publish its approved return, damage, cancellation and refund policy before accepting orders.</p></section>
-    <section><h2>Privacy & Terms</h2><p>Cart, wishlist and saved delivery addresses are stored on this browser. When you place a real UPI order, your delivery and order details are securely saved in Firebase for merchant fulfilment.</p></section></div>
+    <section><h2>Privacy & Terms</h2><p>Cart and wishlist are stored in this browser. Saved delivery addresses are stored in your verified customer account and are not shared with other customers. When you place a real UPI order, your delivery and order details are securely saved in Firebase for merchant fulfilment.</p></section></div>
   </div>`;
 }
 function render() {
@@ -390,6 +416,7 @@ function render() {
   clearRecaptcha();
   document.body.classList.toggle('auth-view',kind==='account');
   document.body.classList.toggle('product-view',kind==='product');
+  document.body.classList.toggle('address-view',kind==='address');
   if(kind!=='product')detailSelection={id:null,photo:0,qty:1};
   $('page').innerHTML=body;
   document.title = (kind.charAt(0).toUpperCase()+kind.slice(1))+' | Woodpeck International';
@@ -416,7 +443,7 @@ function toggleFavorite(id) {
   save();updateBadges();if(location.hash.startsWith('#/product/'))updateDetail();else render();toast(state.favs.includes(id)?'Saved to wishlist':'Removed from wishlist');
 }
 document.addEventListener('click',(event)=>{
-  const btn=event.target.closest('[data-photo],[data-detail-qty],[data-add],[data-buy],[data-fav],[data-qty],[data-remove],[data-address-new],[data-address-next]');
+  const btn=event.target.closest('[data-photo],[data-detail-qty],[data-add],[data-buy],[data-fav],[data-qty],[data-remove],[data-address-new],[data-address-next],[data-address-edit],[data-address-cancel],[data-address-login],[data-address-retry]');
   if(!btn)return;
   if(btn.hasAttribute('data-photo')){detailSelection.photo=Number(btn.dataset.photo);updateDetail();return;}
   if(btn.hasAttribute('data-detail-qty')){detailSelection.qty+=Number(btn.dataset.detailQty);updateDetail();return;}
@@ -426,7 +453,12 @@ document.addEventListener('click',(event)=>{
   if(btn.dataset.fav){toggleFavorite(btn.dataset.fav);return;}
   if(btn.dataset.qty){changeQuantity(btn.dataset.id,Number(btn.dataset.qty));return;}
   if(btn.dataset.remove){delete state.cart[btn.dataset.remove];save();render();toast('Product removed');return;}
-  if(btn.hasAttribute('data-address-new')){state.addAddressForm=true;render();return;}
+  if(btn.hasAttribute('data-address-login')){sessionStorage.setItem('woodpeck-return-address','1');return;}
+  if(btn.hasAttribute('data-address-retry')){if(addressUid){void loadAddressBook(addressUid);render();}return;}
+  if(addressSaving)return;
+  if(btn.hasAttribute('data-address-edit')){editingAddress=btn.dataset.addressEdit;state.addAddressForm=true;render();$('deliveryForm')?.scrollIntoView({block:'start'});return;}
+  if(btn.hasAttribute('data-address-cancel')){editingAddress=null;state.addAddressForm=false;render();return;}
+  if(btn.hasAttribute('data-address-new')){editingAddress=null;state.addAddressForm=true;render();$('deliveryForm')?.scrollIntoView({block:'start'});return;}
   if(btn.hasAttribute('data-address-next')){
     if(!currentAddress()) {toast('Select an address or add a new one');return;}
     go('payment');return;
@@ -435,7 +467,7 @@ document.addEventListener('click',(event)=>{
 });
 document.addEventListener('change',(event)=>{
   if(event.target.id==='storeSort'){state.sort=event.target.value;render();}
-  if(event.target.name==='savedAddress'){state.selectedAddress=event.target.value;save();render();}
+  if(event.target.name==='savedAddress'&&!addressSaving){state.selectedAddress=event.target.value;save();document.querySelectorAll('.da-address').forEach(card=>card.classList.toggle('selected',card.querySelector('input')?.checked===true));}
 });
 document.addEventListener('submit',async (event)=>{
   if(event.target.id==='storeSearchForm'){
@@ -456,24 +488,30 @@ document.addEventListener('submit',async (event)=>{
   }
   if(event.target.id==='deliveryForm'){
     event.preventDefault();
-    const form=event.target;
-    if(!form.reportValidity())return;
+    const form=event.target,uid=signedInUser?.uid;
+    if(!uid||uid!==addressUid||addressSaving||!form.reportValidity())return;
     const data=Object.fromEntries(new FormData(form).entries());
-    data.name=data.name.trim();data.phone=data.phone.trim();data.line1=data.line1.trim();
-    data.city=data.city.trim();data.pin=data.pin.trim();data.line2=(data.line2||'').trim();
-    if(data.name.length<2||data.line1.length<5||!/^([0-9]{10})$/.test(data.phone)||!/^[1-9][0-9]{5}$/.test(data.pin)){
-      toast('Please check name, mobile, street and PIN code');return;
+    for(const key of Object.keys(data))data[key]=String(data[key]).trim();
+    if(data.name.length<2||data.line1.length<5||data.city.length<2||!(/^[6-9][0-9]{9}$/).test(data.phone)||!(/^[1-9][0-9]{5}$/).test(data.pin)){
+      $('addressError').textContent='Please check name, mobile, street, city and PIN code.';return;
     }
-    const address={...data,id:'address-'+Date.now()};
-    state.addresses.push(address);
-    state.selectedAddress=address.id;state.addAddressForm=false;save();
-    toast('Address saved on this device');go('payment');
+    const id=editingAddress||crypto.randomUUID();
+    addressSaving=true;const button=form.querySelector('[type=submit]');button.disabled=true;button.textContent='Saving…';
+    try{
+      await writeCustomerAddress(uid,id,data);
+      if(uid!==addressUid||uid!==signedInUser?.uid)return;
+      state.addresses=[{...data,id},...state.addresses.filter(a=>a.id!==id)];
+      state.selectedAddress=id;state.addAddressForm=false;editingAddress=null;save();
+      toast('Address saved to your account');render();
+    }catch(e){const error=$('addressError');if(error)error.textContent='Unable to save address. Please retry. '+(e.code||'');}
+    finally{addressSaving=false;if(button.isConnected){button.disabled=false;button.textContent='Save Address';}}
   }
 });
 document.addEventListener('click',async event=>{
   const create=event.target.closest('#createUpiOrder');
   if(create){
     if(!signedInUser){go('account');return;}
+    if(!currentAddress()){go('address');return;}
     create.disabled=true;
     try{
       const result=await createUpiOrder({address:currentAddress(),
@@ -492,7 +530,7 @@ document.addEventListener('click',async event=>{
     state.activeOrder=null;localStorage.removeItem('woodpeck-current-order');render();
   }
 });
-window.addEventListener('hashchange',()=>{state.review=false;render();});
+window.addEventListener('hashchange',()=>{state.review=false;render();if(location.hash.startsWith('#/address')&&addressUid)void loadDeliveryQuote(addressUid);});
 window.addEventListener('storage',(event)=>{
   if(['woodpeck-demo-cart','woodpeck-demo-wishlist'].includes(event.key)){
     state.cart=read('woodpeck-demo-cart',{});
@@ -547,7 +585,7 @@ document.addEventListener('submit', async event => {
       registrationName = '';
       phoneLoginStep = 'number';
     }
-    render();
+    if(form.id==='firebaseCodeForm'&&sessionStorage.getItem('woodpeck-return-address')){sessionStorage.removeItem('woodpeck-return-address');go('address');}else render();
   } catch (error) {
     displayLoginError(error);
   } finally {
@@ -580,12 +618,16 @@ document.addEventListener('click', async event => {
   }
 });
 onLoginChange(user => {
-  // Do not expose a previous signed-in customer's name, address, or order.
-  if (!user || (state.activeOrder && state.activeOrder.uid !== user.uid)) {
-    state.activeOrder = null;
+  authKnown=true;
+  const uid=user?.uid||null;
+  const changed=uid!==addressUid;
+  if(changed){
+    addressUid=uid;state.addresses=[];state.selectedAddress=null;state.addAddressForm=false;editingAddress=null;shippingQuote=null;addressStatus=uid?'loading':'idle';
+    if(uid){void loadAddressBook(uid);void loadDeliveryQuote(uid);}
   }
-  if (window.location.hash.startsWith('#/account') || window.location.hash.startsWith('#/payment')) render();
-  if (user) void restoreUpiOrder();
+  if(!user||(state.activeOrder&&state.activeOrder.uid!==uid))state.activeOrder=null;
+  if(['#/account','#/payment','#/address'].some(route=>location.hash.startsWith(route))&&(changed||!$('deliveryForm')))render();
+  if(user)void restoreUpiOrder();
 });
 
 // Only published merchant inventory is shown. No fallback or sample products.
@@ -601,7 +643,7 @@ watchPublishedProducts((cloudItems, fromCache) => {
     save();
   }
   const route=location.hash.replace(/^#\/?/,'').split('/')[0];
-  if(['shop','product','wishlist','cart','address','payment'].includes(route)||!route)render();
+  if(route==='address'&&$('deliveryForm')){if($('deliverySummary'))$('deliverySummary').innerHTML=deliverySummaryContent();}else if(['shop','product','wishlist','cart','address','payment'].includes(route)||!route)render();
 },error=>{
   catalogStatus='error';
   console.warn('Cloud product catalog is not available.',error.code||error.message);
