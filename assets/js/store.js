@@ -123,27 +123,72 @@ function shop(route) {
       ${list.length ? `<div class="store-product-grid">${list.map(productCard).join('')}</div>` : empty('No matching furniture','Try another keyword or category.')}
     </section></div></div>`;
 }
+let detailSelection = {id:null, photo:0, qty:1};
+const detailIcons = {
+  wood:'<path d="M12 22v-5m-5-7 5-8 5 8h-3l5 7H5l5-7Z"/>',
+  shield:'<path d="M12 2 21 6v6c0 5-9 10-9 10S3 17 3 12V6Z"/><path d="m8 12 3 3 5-6"/>',
+  sofa:'<path d="M5 12V7a3 3 0 0 1 3-3h8a3 3 0 0 1 3 3v5M5 18v3m14-3v3M3 11a2 2 0 0 1 2 2v2h14v-2a2 2 0 0 1 4 0v5H1v-5a2 2 0 0 1 2-2Z"/>',
+  tool:'<path d="m3 21 12-12m-3-5 4 4 5-5v5l-4 4-5-1-8 10H1v-3l8-8-6-6 2-2 6 6"/>',
+  truck:'<path d="M1 4h14v13H1m14-9h4l4 5v4h-8M1 8h6m-6 4h4"/><circle cx="6" cy="19" r="2"/><circle cx="19" cy="19" r="2"/>',
+  cart:'<path d="M2 3h3l3 13h12l3-10H6"/><circle cx="10" cy="21" r="1"/><circle cx="19" cy="21" r="1"/>',
+  bolt:'<path d="m13 2-9 12h7l-1 8 10-13h-8Z"/>'
+};
+const di = name => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'+detailIcons[name]+'</svg>';
+const productPhotos = p => [...new Set([p.image,...(Array.isArray(p.images)?p.images:[])].filter(x=>typeof x==='string' && (/^https:\/\//i.test(x)||x.startsWith('assets/images/'))))].slice(0,10);
+const maxDetailQty = p => Math.max(0,Math.min(99,Number.isInteger(p.stock)?p.stock:99) - (state.cart[p.id]||0));
 function productDetail(id) {
-  const p = item(id);
-  if (!p) return `<div class="container store-page">${empty('Product not found', 'This product is not in our demo catalog.')}</div>`;
-  const related = products.filter(other=>other.category===p.category && other.id!==p.id).slice(0,3);
-  const loved = state.favs.includes(p.id);
-  const saving = p.compareAt > p.price ? Math.round(100*(p.compareAt-p.price)/p.compareAt) : 0;
-  return `<div class="container store-page">
+  const p=item(id);
+  if(!p)return '<div class="container store-page">'+empty('Product not found','This product is not in our catalog.')+'</div>';
+  if(detailSelection.id!==id) detailSelection={id,photo:0,qty:1};
+  const photos=productPhotos(p), max=maxDetailQty(p);
+  detailSelection.photo=Math.min(detailSelection.photo,Math.max(0,photos.length-1));
+  detailSelection.qty=Math.min(Math.max(1,detailSelection.qty),Math.max(1,max));
+  const n=detailSelection.photo, qty=detailSelection.qty, loved=state.favs.includes(id);
+  const related=products.filter(x=>x.category===p.category&&x.id!==id).slice(0,3);
+  const saving=p.compareAt>p.price?Math.round(100*(p.compareAt-p.price)/p.compareAt):0;
+  const materials=String(p.materials||'').split('·').map(x=>x.trim()).filter(Boolean);
+  const features=[[ 'wood',materials[0]||categoryName(p.category)],['shield',typeof p.stock==='number'?(p.stock>0?'In stock':'Out of stock'):'Check availability'],['sofa',materials[1]||categoryName(p.category)],['tool',p.tag||'Furniture collection']];
+  const variants=p.variantGroup?products.filter(x=>x.variantGroup===p.variantGroup&&x.category===p.category):[p];
+  const variantOptions=(key,other,heading,withImage)=>{
+    const options=[...new Set(variants.map(x=>x[key]).filter(x=>typeof x==='string'&&x.trim()))];
+    if(!options.length)return '';
+    return `<div class="pd-option"><h2>${heading}: <span>${esc(p[key]||'')}</span></h2><div class="pd-variants ${withImage?'pd-finishes':''}">${options.map(label=>{
+      const match=variants.find(x=>x.id===p.id&&x[key]===label)||variants.find(x=>x[key]===label&&x[other]===p[other]);
+      const preview=match||variants.find(x=>x[key]===label);
+      return match?`<a href="#/product/${encodeURIComponent(match.id)}" class="${match.id===p.id?'selected':''}" ${match.id===p.id?'aria-current="true"':''}>${withImage?`<img src="${esc(asset(preview.image))}" alt="">`:''}<strong>${esc(label)}</strong></a>`:`<span class="unavailable" title="Unavailable in the selected option">${withImage?`<img src="${esc(asset(preview.image))}" alt="">`:''}<strong>${esc(label)}</strong></span>`;
+    }).join('')}</div></div>`;
+  };
+  const thumbs=photos.length>1?'<div class="pd-thumbs" aria-label="Product photos">'+photos.map((url,i)=>`<button type="button" class="${i===n?'selected':''}" data-photo="${i}" aria-label="Photo ${i+1}" aria-pressed="${i===n}"><img src="${esc(asset(url))}" alt="${esc(p.name)} – view ${i+1}" loading="lazy"></button>`).join('')+'</div>':'';
+  return `<div class="container store-page pd-page">
     ${breadcrumb(['Shop',categoryName(p.category),p.name])}
-    <div class="store-detail">
-      <div class="store-detail-photo"><img src="${asset(p.image)}" alt="${esc(p.name)}"/><div class="detail-photo-label">WOODPECK · FURNITURE COLLECTION</div></div>
-      <div class="store-detail-info"><p class="eyebrow">${esc(categoryName(p.category))} / PREMIUM COLLECTION</p>
-        <h1>${esc(p.name)}</h1><div class="store-detail-rating">✦ Handpicked furniture for your home</div>
-        <div class="store-detail-price"><strong>${money(p.price)}</strong><del>${money(p.compareAt)}</del>${saving?`<span class="store-discount">${saving}% OFF</span>`:''}</div>
-        <p class="product-description">${esc(p.description)}</p>
-        <div class="detail-meta"><div><span>Material / Finish</span><strong>${esc(p.materials)}</strong></div><div><span>Availability</span><strong>${typeof p.stock==='number'?(p.stock>0?`${p.stock} available`:'Out of stock'):'Confirm with seller'}</strong></div><div><span>Delivery</span><strong>Calculated after shipping setup</strong></div></div>
-        <div class="store-detail-actions"><button class="store-btn primary" data-add="${p.id}">Add to Cart</button><button class="store-btn secondary" data-buy="${p.id}">Buy Now</button><button class="store-btn ghost" data-fav="${p.id}">${loved?'♥ Saved':'♡ Wishlist'}</button></div>
-        <div class="detail-caution">Demo product: photo, materials, discount and price must be approved by Woodpeck International.</div>
+    <div class="store-detail pd-layout">
+      <section class="pd-gallery">
+        <div class="store-detail-photo pd-hero" id="pdHero"><img src="${esc(asset(photos[n]||p.image))}" alt="${esc(p.name)}" draggable="false"><button type="button" class="store-heart pd-heart ${loved?'active':''}" data-fav="${esc(id)}" aria-label="${loved?'Remove from wishlist':'Add to wishlist'}" aria-pressed="${loved}">${loved?'♥':'♡'}</button><span class="pd-counter">${n+1} / ${photos.length||1}</span></div>
+        ${photos.length>1?'<div class="pd-dots">'+photos.map((_,i)=>`<button type="button" data-photo="${i}" aria-label="View photo ${i+1}" aria-pressed="${n===i}" class="${n===i?'selected':''}"></button>`).join('')+'</div>':''}
+        ${thumbs}
+      </section>
+      <div class="store-detail-info pd-info">
+        <h1>${esc(p.name)}</h1>
+        <div class="pd-rating">${Number.isFinite(p.rating)&&p.rating>=1&&p.rating<=5?`<span class="pd-stars">★</span> <strong>${esc(p.rating)}</strong>${Number.isInteger(p.reviewCount)?' ('+esc(p.reviewCount)+' Reviews)':''}`:'<span class="pd-category">'+esc(categoryName(p.category))+'</span>'}</div>
+        <div class="store-detail-price pd-price"><strong>${money(p.price)}</strong>${saving?`<del>${money(p.compareAt)}</del><span class="store-discount">${saving}% OFF</span>`:''}</div>
+        <div class="pd-features">${features.map(([icon,label])=>`<div>${di(icon)}<span>${esc(label)}</span></div>`).join('')}</div>
+        ${variantOptions('finish','configuration','Select Finish',true)}${variantOptions('configuration','finish','Select Configuration',false)}
+        ${materials.length&&!p.finish?`<div class="pd-option"><h2>Material / Finish</h2><div class="pd-spec"><img src="${esc(asset(p.image))}" alt=""><strong>${esc(p.materials)}</strong></div></div>`:''}
+        <div class="pd-quantity-row"><div class="pd-quantity"><h2>Quantity</h2><div class="qty-control"><button type="button" data-detail-qty="-1" aria-label="Decrease quantity" ${qty<=1?'disabled':''}>−</button><strong>${qty}</strong><button type="button" data-detail-qty="1" aria-label="Increase quantity" ${qty>=max?'disabled':''}>+</button></div></div><div class="pd-delivery">${di('truck')}<div><strong>Delivery</strong><small>Calculated at checkout</small></div></div></div>
+        <section class="pd-description"><h2>Product details</h2><p>${esc(p.description||'Contact us for more details.')}</p></section>
+        ${max===0?'<p class="pd-stock-note">No additional quantity available.</p>':''}
+        <div class="pd-purchase"><button class="pd-action pd-add" data-add="${esc(id)}" data-detail-purchase ${max===0?'disabled':''}>${di('cart')}<span><strong>Add to Cart</strong><small>${money(p.price*qty)}</small></span></button><button class="pd-action pd-buy" data-buy="${esc(id)}" data-detail-purchase ${max===0?'disabled':''}>${di('bolt')}<span><strong>Buy Now</strong><small>at ${money(p.price*qty)}</small></span></button></div>
       </div>
     </div>
     <section class="store-related"><h2>You may also like</h2><div class="store-product-grid">${(related.length?related:products.filter(x=>x.id!==id).slice(0,3)).map(productCard).join('')}</div></section>
   </div>`;
+}
+function updateDetail() {
+  const p=item(detailSelection.id);
+  if(!p||!location.hash.startsWith('#/product/'))return;
+  const scroll=window.scrollY;
+  $('page').innerHTML=productDetail(p.id);
+  window.scrollTo({top:scroll,behavior:'instant'});
 }
 function cartPage() {
   const lines = Object.entries(state.cart).filter(([id])=>!!item(id));
@@ -341,17 +386,22 @@ function render() {
   }
   clearRecaptcha();
   document.body.classList.toggle('auth-view',kind==='account');
+  document.body.classList.toggle('product-view',kind==='product');
+  if(kind!=='product')detailSelection={id:null,photo:0,qty:1};
   $('page').innerHTML=body;
   document.title = (kind.charAt(0).toUpperCase()+kind.slice(1))+' | Woodpeck International';
   updateBadges();
   if(kind==='payment'&&state.activeOrder)void displayUpiQr();
+  document.querySelector('.pd-menu')?.removeAttribute('open');
   window.scrollTo({top:0,behavior:'instant'});
 }
-function addToCart(id, buy=false) {
+function addToCart(id, buy=false, requested=1) {
   const p=item(id); if(!p)return;
-  state.cart[id]=Math.min(99,(state.cart[id]||0)+1);
+  const available=maxDetailQty(p);
+  if(available<requested){toast('Not enough stock available');return;}
+  state.cart[id]=(state.cart[id]||0)+requested;
   save();updateBadges();
-  if(buy)go('address'); else {toast(p.name+' added to cart');render();}
+  if(buy)go('address'); else {toast(p.name+' added to cart');if(location.hash.startsWith('#/product/'))updateDetail();else render();}
 }
 function changeQuantity(id,delta) {
   if(!state.cart[id])return;
@@ -360,13 +410,16 @@ function changeQuantity(id,delta) {
 function toggleFavorite(id) {
   if (!item(id))return;
   state.favs=state.favs.includes(id)?state.favs.filter(x=>x!==id):[...state.favs,id];
-  save();render();toast(state.favs.includes(id)?'Saved to wishlist':'Removed from wishlist');
+  save();updateBadges();if(location.hash.startsWith('#/product/'))updateDetail();else render();toast(state.favs.includes(id)?'Saved to wishlist':'Removed from wishlist');
 }
 document.addEventListener('click',(event)=>{
-  const btn=event.target.closest('[data-add],[data-buy],[data-fav],[data-qty],[data-remove],[data-address-new],[data-address-next]');
+  const btn=event.target.closest('[data-photo],[data-detail-qty],[data-add],[data-buy],[data-fav],[data-qty],[data-remove],[data-address-new],[data-address-next]');
   if(!btn)return;
-  if(btn.dataset.add){addToCart(btn.dataset.add);return;}
-  if(btn.dataset.buy){addToCart(btn.dataset.buy,true);return;}
+  if(btn.hasAttribute('data-photo')){detailSelection.photo=Number(btn.dataset.photo);updateDetail();return;}
+  if(btn.hasAttribute('data-detail-qty')){detailSelection.qty+=Number(btn.dataset.detailQty);updateDetail();return;}
+  const qty=btn.hasAttribute('data-detail-purchase')?detailSelection.qty:1;
+  if(btn.dataset.add){addToCart(btn.dataset.add,false,qty);return;}
+  if(btn.dataset.buy){addToCart(btn.dataset.buy,true,qty);return;}
   if(btn.dataset.fav){toggleFavorite(btn.dataset.fav);return;}
   if(btn.dataset.qty){changeQuantity(btn.dataset.id,Number(btn.dataset.qty));return;}
   if(btn.dataset.remove){delete state.cart[btn.dataset.remove];save();render();toast('Product removed');return;}

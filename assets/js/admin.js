@@ -102,11 +102,11 @@ function displayProducts() {
 $('productSearch').addEventListener('input',displayProducts);
 $('productFilter').addEventListener('change',displayProducts);
 function openForm(id=''){
-  form.reset();$('editingId').value=id;$('imagePreview').hidden=true;$('uploadProgress').textContent='';$('formError').textContent='';
+  form.reset();$('extraPhotoProgress').textContent='';$('editingId').value=id;$('imagePreview').hidden=true;$('uploadProgress').textContent='';$('formError').textContent='';
   $('dialogTitle').textContent=id?'Edit Product':'Add Product';
   const p=products.find(p=>p.id===id);
-  if(p){for(const key of ['name','category','price','compareAt','stock','description','materials','tag','image'])form.elements[key].value=p[key]??'';
-    form.elements.published.checked=!!p.published;form.elements.bestseller.checked=!!p.bestseller;previewImage();}
+  if(p){for(const key of ['name','category','price','compareAt','stock','description','materials','tag','image','variantGroup','finish','configuration'])form.elements[key].value=p[key]??'';
+    form.elements.images.value=Array.isArray(p.images)?p.images.join('\n'):'';form.elements.published.checked=!!p.published;form.elements.bestseller.checked=!!p.bestseller;previewImage();}
   $('productDialog').showModal();
 }
 function previewImage(){const url=form.elements.image.value.trim();const img=$('imagePreview');img.hidden=!/^https:\/\//i.test(url);if(!img.hidden)img.src=url;}
@@ -130,12 +130,23 @@ $('photoFile').addEventListener('change',async e=>{
     $('imageUrl').value=url;previewImage();$('uploadProgress').textContent='Photo uploaded successfully.';
   }catch(error){$('uploadProgress').textContent=`Upload failed: ${error.message}`;}
 });
+$('extraPhotoFiles').addEventListener('change',async e=>{
+  const files=Array.from(e.target.files||[]), field=form.elements.images, status=$('extraPhotoProgress'), save=$('saveProduct');
+  const urls=field.value.split(/\r?\n/).map(x=>x.trim()).filter(Boolean);
+  if(urls.length+files.length>9){status.textContent='Maximum 9 additional photos.';return;}
+  save.disabled=true;
+  try{for(const [i,file] of files.entries()){const url=await uploadProductImage(file,n=>status.textContent='Photo '+(i+1)+' / '+files.length+' – '+n+'%');urls.push(url);field.value=urls.join('\n');}status.textContent='Photos uploaded.';}
+  catch(err){status.textContent='Upload failed: '+err.message;}
+  finally{save.disabled=false;e.target.value='';}
+});
 form.addEventListener('submit',async e=>{
   e.preventDefault();if(!isAdmin || !auth.currentUser)return;
   const btn=$('saveProduct');btn.disabled=true;$('formError').textContent='';
   try{
     const data=Object.fromEntries(new FormData(form).entries());
     data.published=form.elements.published.checked;data.bestseller=form.elements.bestseller.checked;
+    data.images=String(data.images||'').split(/\r?\n/).map(x=>x.trim()).filter(Boolean);
+    if(data.images.length>9||data.images.some(x=>!/^https:\/\//i.test(x)||x.length>2000))throw new Error('Enter up to 9 valid HTTPS image URLs.');
     if(!/^https:\/\//i.test(data.image)) throw new Error('Upload a photo or enter an HTTPS image URL.');
     if(!Number.isInteger(Number(data.stock))||Number(data.stock)<0)throw new Error('Stock must be a whole number of 0 or more.');
     if(Number(data.compareAt)<Number(data.price))throw new Error('MRP should be equal to or above selling price.');

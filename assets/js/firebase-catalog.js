@@ -43,7 +43,7 @@ export async function saveProduct(data, id) {
     name:data.name.trim(), category:data.category, description:data.description.trim(),
     materials:data.materials.trim(), tag:data.tag.trim(),
     price:Number(data.price),compareAt:Number(data.compareAt),stock:Number(data.stock),
-    image:data.image.trim(),published:data.published===true,bestseller:data.bestseller===true,
+    image:data.image.trim(),images:data.images||[],variantGroup:String(data.variantGroup||'').trim(),finish:String(data.finish||'').trim(),configuration:String(data.configuration||'').trim(),published:data.published===true,bestseller:data.bestseller===true,
     updatedAt:serverTimestamp(),
   };
   if (!id) payload.createdAt = serverTimestamp();
