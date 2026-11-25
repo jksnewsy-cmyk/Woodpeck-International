@@ -1,4 +1,4 @@
-import {watchUpiOrders,reviewUpiOrder,getCheckoutSettings,updateCheckoutSettings} from './checkout-api.js';
+import {watchUpiOrders,reviewUpiOrder,getCheckoutSettings,updateCheckoutSettings,getBankSettings,saveBankSettings,downloadPaymentProof} from './checkout-api.js';
 import { onAuthStateChanged } from 'firebase/auth';
 import { auth, checkAdmin, watchAllProducts, saveProduct, removeProduct, uploadProductImage } from './firebase-catalog.js';
 import { sendPhoneCode, confirmPhoneCode, logoutPhoneUser, resetPhoneSignIn } from './firebase-auth.js';
@@ -46,7 +46,7 @@ async function determineAccess(user) {
       setView('dashboard');showSellerSection('dashboard',false);
       unsubscribe=watchAllProducts(data=>{products=data;productsLoaded=true;displayProducts();renderOrderSummary();},e=>alertMessage('status',`Cannot access products: ${e.code||e.message}. Check Firestore Security Rules.`,true));
       orderUnsubscribe=watchUpiOrders(displayUpiOrders,e=>{alertMessage('orderStatus','Could not access orders: '+(e.code||e.message),true);$('recentOrderList').textContent='Orders unavailable. Please refresh.';});
-      void loadCheckoutSettings();
+      void loadCheckoutSettings();void loadBankSettings();
     }
   }catch(error){$('userUid').textContent=user.uid;setView('restricted');}
   checking=false;
@@ -312,13 +312,15 @@ function displayUpiOrders(orders){
   table.innerHTML=orders.map(o=>{
     const pending=o.status==='verification_pending';
     return '<tr><td><strong>'+esc(o.id)+'</strong><br/>'+esc(o.address?.name||'')+' · '+esc(o.customerPhone||'')+
-      '<br/>PIN '+esc(o.address?.pin||'')+'</td><td>₹'+Number(o.total).toLocaleString('en-IN')+
-      '</td><td>'+esc(o.utr||'Not submitted')+'</td><td>'+esc(o.status)+
+      '<br/>'+esc(o.method==='bank'?'Bank Transfer':'UPI')+' · PIN '+esc(o.address?.pin||'')+'</td><td>₹'+Number(o.total).toLocaleString('en-IN')+
+      '</td><td>'+esc(o.utr||'Not submitted')+(o.utr?'<br/><button data-proof-id="'+esc(o.id)+'" data-proof-uid="'+esc(o.uid)+'">Download proof (if uploaded)</button>':'')+'</td><td>'+esc(o.status)+
       '</td><td>'+(pending?'<button data-review-id="'+esc(o.id)+'" data-review-status="paid">Mark PAID after bank check</button> '+
       '<button data-review-id="'+esc(o.id)+'" data-review-status="rejected">Reject</button>':'—')+'</td></tr>';
   }).join('');
 }
 $('upiOrdersTable').addEventListener('click',async e=>{
+  const proof=e.target.closest('[data-proof-id]');
+  if(proof&&isAdmin){proof.disabled=true;try{const blob=await downloadPaymentProof(proof.dataset.proofUid,proof.dataset.proofId);const url=URL.createObjectURL(blob),link=document.createElement('a');link.href=url;link.download='payment-proof-'+proof.dataset.proofId+({'image/jpeg':'.jpg','image/png':'.png','application/pdf':'.pdf'}[blob.type]||'.bin');link.click();setTimeout(()=>URL.revokeObjectURL(url),10000);}catch(err){alertMessage('orderStatus',err.code==='storage/object-not-found'?'No optional proof uploaded.':'Unable to download proof: '+(err.code||err.message),true);}finally{proof.disabled=false;}return;}
   const btn=e.target.closest('[data-review-id]');
   if(!btn||!isAdmin)return;
   const orderId=btn.dataset.reviewId,status=btn.dataset.reviewStatus;
@@ -332,4 +334,22 @@ $('upiOrdersTable').addEventListener('click',async e=>{
     alertMessage('orderStatus','Order '+orderId+' updated to '+status+'.');
   }catch(err){alertMessage('orderStatus','Review failed: '+(err.code||err.message),true);}
   finally{if(btn.isConnected)btn.disabled=false;}
+});
+
+async function loadBankSettings(){
+  try{const b=await getBankSettings();if(!isAdmin)return;
+    $('bankName').value=b?.bankName||'';$('bankAccountName').value=b?.accountName||'';
+    $('bankAccountNumber').value=b?.accountNumber||'';$('bankAccountConfirm').value=b?.accountNumber||'';
+    $('bankIfsc').value=b?.ifsc||'';$('bankEnabled').checked=b?.enabled===true;$('bankConfirmed').checked=false;
+  }catch(e){alertMessage('bankStatus','Bank details unavailable: '+(e.code||e.message),true);}
+}
+$('bankIfsc').addEventListener('input',e=>e.target.value=e.target.value.toUpperCase());
+$('bankSettingsForm').addEventListener('submit',async e=>{
+  e.preventDefault();if(!isAdmin||!auth.currentUser)return;
+  const data={bankName:$('bankName').value.trim(),accountName:$('bankAccountName').value.trim(),accountNumber:$('bankAccountNumber').value.trim(),ifsc:$('bankIfsc').value.trim().toUpperCase(),enabled:$('bankEnabled').checked};
+  if(data.accountNumber!==$('bankAccountConfirm').value.trim()){alertMessage('bankStatus','Account numbers do not match.',true);return;}
+  if(data.enabled&&!$('bankConfirmed').checked){alertMessage('bankStatus','Verify the business bank account before enabling bank transfer.',true);return;}
+  if(data.enabled&&!confirm('Publish these verified business bank details to signed-in customers?'))return;
+  const btn=e.target.querySelector('button');btn.disabled=true;
+  try{await saveBankSettings(data);alertMessage('bankStatus',data.enabled?'Bank transfer enabled. Confirm each receipt in the bank.':'Bank transfer disabled.');$('bankConfirmed').checked=false;}catch(err){alertMessage('bankStatus',err.message,true);}finally{btn.disabled=false;}
 });

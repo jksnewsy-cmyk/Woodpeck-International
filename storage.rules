@@ -13,6 +13,18 @@ service firebase.storage {
         request.resource.contentType.matches('image/(jpeg|png|webp)');
       allow update, delete: if false;
     }
+    match /paymentEvidence/{uid}/{orderId}/proof {
+      function isOwner() {
+        return request.auth != null && request.auth.uid == uid &&
+          firestore.get(/databases/(default)/documents/orders/$(orderId)).data.uid == uid;
+      }
+      allow read: if isAdmin() || isOwner();
+      allow create, update: if isOwner() &&
+        firestore.get(/databases/(default)/documents/orders/$(orderId)).data.status == 'payment_pending' &&
+        request.resource.size <= 5 * 1024 * 1024 &&
+        request.resource.contentType.matches('image/(jpeg|png)|application/pdf');
+      allow delete: if false;
+    }
     match /{path=**} { allow read, write: if false; }
   }
 }

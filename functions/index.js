@@ -32,6 +32,15 @@ exports.createUpiOrder=onCall(opts,async request=>{
   if (!request.auth || !request.auth.token.phone_number) err("unauthenticated","Sign in with mobile OTP before ordering.");
   const raw=request.data||{};
   const address=validAddress(raw.address);
+  const method=raw.method||"upi";
+  if(!["upi","bank"].includes(method))err("invalid-argument","Unsupported payment method.");
+  let bank=null;
+  if(method==="bank"){
+    const b=(await db.doc("settings/bankTransfer").get()).data();
+    if(!b||b.enabled!==true||!(/^[0-9]{8,20}$/).test(b.accountNumber||"")||!(/^[A-Z]{4}0[A-Z0-9]{6}$/).test(b.ifsc||"")||!b.bankName||!b.accountName)
+      err("failed-precondition","Bank transfer is not yet enabled by the merchant.");
+    bank={bankName:b.bankName,accountName:b.accountName,accountNumber:b.accountNumber,ifsc:b.ifsc};
+  }
   const cart=raw.items;
   if (!Array.isArray(cart)||cart.length<1||cart.length>15) err("invalid-argument","Cart must contain 1–15 products.");
   const checkout=await db.doc("settings/checkout").get();
@@ -52,27 +61,28 @@ exports.createUpiOrder=onCall(opts,async request=>{
   }
   const shipping=settings.shippingCharge;
   const total=subtotal+shipping;
-  if(!validNum(total,1,100000))err("failed-precondition","This amount exceeds the single-transaction UPI checkout limit. Please contact the shop for a bank-transfer quote.");
+  if(!validNum(total,1,method==="upi"?100000:3000100000))err("failed-precondition","This amount exceeds the selected payment method limit. Choose bank transfer or contact the store.");
   const ref=db.collection("orders").doc();
   const data={uid:request.auth.uid,customerPhone:request.auth.token.phone_number,
     customerName:String(request.auth.token.name||address.name).slice(0,80),
     address,items:lines,subtotal,shipping,total,
-    taxIncluded:true,method:"upi",status:"payment_pending",
+    taxIncluded:true,method,status:"payment_pending",...(bank?{bank}:{}),
     merchantUpi:MERCHANT_UPI,merchantName:MERCHANT_NAME,utr:null,
     createdAt:admin.firestore.FieldValue.serverTimestamp(),updatedAt:admin.firestore.FieldValue.serverTimestamp()};
   await ref.create(data);
   const params=new URLSearchParams({pa:MERCHANT_UPI,pn:MERCHANT_NAME,am:total.toFixed(2),cu:"INR",tn:"Woodpeck order "+ref.id.slice(0,14)});
-  return {orderId:ref.id,total,subtotal,shipping,upiId:MERCHANT_UPI,merchantName:MERCHANT_NAME,upiUri:"upi://pay?"+params.toString()};
+  return {orderId:ref.id,total,subtotal,shipping,method,merchantName:MERCHANT_NAME,items:lines,...(bank?{bank}:{upiId:MERCHANT_UPI,upiUri:"upi://pay?"+params.toString()})};
 });
 exports.submitUpiReference=onCall(opts,async request=>{
   if(!request.auth)err("unauthenticated","Sign in required.");
-  const orderId=request.data?.orderId,utr=String(request.data?.utr||"").trim();
-  if(typeof orderId!=="string"||!/^[A-Za-z0-9]{15,40}$/.test(orderId)||!/^[0-9]{10,22}$/.test(utr))err("invalid-argument","Enter a valid numeric UPI transaction reference.");
+  const orderId=request.data?.orderId,utr=String(request.data?.utr||"").trim().toUpperCase();
+  if(typeof orderId!=="string"||!/^[A-Za-z0-9]{15,40}$/.test(orderId)||!/^[A-Z0-9]{8,30}$/.test(utr))err("invalid-argument","Enter a valid transaction reference.");
   const ref=db.doc("orders/"+orderId);
   const unique=db.doc("paymentReferences/"+utr);
   await db.runTransaction(async t=>{
     const [snap,already]=await Promise.all([t.get(ref),t.get(unique)]);
     if (!snap.exists||snap.get("uid")!==request.auth.uid)err("permission-denied","Order not found.");
+    if(snap.get("method")!=="bank"&&!/^[0-9]{10,22}$/.test(utr))err("invalid-argument","Enter a numeric UPI reference.");
     if(snap.get("status")!=="payment_pending")err("failed-precondition","Reference has already been submitted.");
     if(already.exists)err("already-exists","This transaction reference has already been used.");
     t.create(unique,{orderId,createdAt:admin.firestore.FieldValue.serverTimestamp()});

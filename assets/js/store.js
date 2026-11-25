@@ -1,5 +1,5 @@
 import QRCode from 'qrcode';
-import {createUpiOrder,submitUpiReference,fetchUpiOrder,readCustomerAddresses,writeCustomerAddress,readDeliveryQuote} from './checkout-api.js';
+import {createUpiOrder,submitUpiReference,fetchUpiOrder,readCustomerAddresses,writeCustomerAddress,readDeliveryQuote,getBankSettings,uploadPaymentProof} from './checkout-api.js';
 import {
   firebaseReady, signedInUser, onLoginChange,
   sendPhoneCode, confirmPhoneCode, logoutPhoneUser, registerCustomerName,
@@ -11,7 +11,7 @@ let authMode = 'login';
 let registrationName = '';
 let addressUid=null,addressStatus='idle',shippingQuote=null,authKnown=false,editingAddress=null,addressSaving=false;
 const UPI_CHECKOUT_LIMIT=100000;
-let paymentCreating=false;
+let paymentCreating=false,bankAvailable=false,bankChecked=false;
 const exceedsUpiLimit=()=>subtotal()+(shippingQuote??0)>UPI_CHECKOUT_LIMIT;
 
 import './products.js';
@@ -71,6 +71,7 @@ async function loadAddressBook(uid){
 }
 async function loadDeliveryQuote(uid){
   try{const quote=await readDeliveryQuote();if(addressUid===uid)shippingQuote=quote;}catch(e){if(addressUid===uid)shippingQuote=null;}
+  if(addressUid===uid){try{const b=await getBankSettings();if(addressUid===uid)bankAvailable=b?.enabled===true;}catch(e){if(addressUid===uid)bankAvailable=false;}if(addressUid===uid)bankChecked=true;}
   if(addressUid===uid&&$('deliverySummary'))$('deliverySummary').innerHTML=deliverySummaryContent();
   if(addressUid===uid&&location.hash.startsWith('#/payment')&&!state.activeOrder&&!paymentCreating)render();
 }
@@ -234,7 +235,7 @@ function wishlistPage() {
 }
 function stepper(which) {
   return `<nav class="checkout-steps" aria-label="Checkout steps">
-    <div class="done"><span>✓</span> Cart</div><i></i><div class="${which==='address'?'current':'done'}"><span>2</span> Delivery Address</div><i></i><div class="${which==='payment'?'current':''}"><span>3</span> Payment</div>
+    <div class="done"><span>✓</span> Cart</div><i></i><div class="${which==='address'?'current':'done'}"><span>${which==='payment'?'✓':'2'}</span> Delivery Address</div><i></i><div class="${which==='payment'?'current':''}"><span>3</span> Payment</div>
   </nav>`;
 }
 const addrIcon=(name)=>'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'+({
@@ -289,55 +290,41 @@ function orderSummary(order){
     '<div class="summary-line summary-total"><span>Total payable</span><strong>'+money(order.total)+'</strong></div>'+
     '<p class="summary-note">Tax included. Never pay a different amount. Verify the receiver name in your UPI app before approving.</p></aside>';
 }
+const payIcon=(key)=>'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'+({
+ upi:'<path d="m6 3 12 9-12 9 4-9Z"/><path d="m3 3 4 9-4 9"/>',bank:'<path d="m2 8 10-6 10 6H2Zm1 13h18M5 10v8m5-8v8m4-8v8m5-8v8"/>',card:'<rect x="2" y="4" width="20" height="16" rx="3"/><path d="M2 9h20M6 15h4"/>',net:'<rect x="4" y="3" width="16" height="13" rx="2"/><path d="m4 16-3 5h22l-3-5M8 9h8"/>',wallet:'<rect x="2" y="5" width="19" height="15" rx="3"/><path d="M21 10h-6a3 3 0 0 0 0 6h6M16 13h1"/>',emi:'<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M7 2v6m10-6v6M3 10h18m-13 4h1m4 0h1m4 0h1m-11 3h1m4 0h1"/>',cod:'<path d="M2 4h13v14H2m13-9h4l3 4v5h-7"/><circle cx="6" cy="19" r="2"/><circle cx="18" cy="19" r="2"/>',shield:'<path d="m12 2 9 4v6c0 5-9 10-9 10s-9-5-9-10V6Z"/><path d="m8 12 3 3 5-6"/>',copy:'<rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V3H3v13h5"/>',lock:'<rect x="4" y="10" width="16" height="12" rx="2"/><path d="M8 10V6a4 4 0 0 1 8 0v4m-4 5v3"/>',list:'<rect x="5" y="3" width="14" height="18" rx="2"/><path d="M8 8h8m-8 4h8m-8 4h5"/>'
+}[key]||'')+'</svg>';
+function paymentPrices(order){
+  const amount=order?order.subtotal:subtotal(),shipping=order?order.shipping:shippingQuote,total=order?order.total:(shipping===null?null:amount+shipping);
+  const lines=order?order.items||[]:Object.entries(state.cart).filter(([id])=>item(id)).map(([id,qty])=>({id,qty,name:item(id).name,price:item(id).price}));
+  return `<section class="pm-card"><h2>${addrIcon('cart')} Order Summary</h2>${lines.length?lines.map(line=>{const p=item(line.id);return `<div class="da-item pm-item">${p?.image?`<img src="${esc(asset(p.image))}" alt="">`:'<span class="pm-item-placeholder">'+addrIcon('cart')+'</span>'}<div><strong>${esc(line.name)}</strong><small>Qty: ${line.qty}</small></div><b>${money(line.price*line.qty)}</b></div>`;}).join(''):'<p>Order details saved.</p>'}</section><section class="pm-card"><h2>${payIcon('list')} Price Details</h2><div class="pm-line"><span>Product Amount</span><strong>${money(amount)}</strong></div><div class="pm-line"><span>Delivery Charge</span><strong>${shipping===null?'To be confirmed':money(shipping)}</strong></div><div class="da-payable"><span>${total===null?'Item Subtotal':'Total Payable Amount'}</span><strong>${money(total??amount)}</strong></div></section>`;
+}
+function paymentOptions(){
+  if(exceedsUpiLimit()&&bankAvailable)state.payment='bank';
+  const rows=[['upi','Pay with UPI','Google Pay, PhonePe, Paytm, BHIM & more',!exceedsUpiLimit()&&shippingQuote!==null],['bank','Bank Transfer (NEFT / IMPS / RTGS)','Pay using your bank account',bankAvailable&&shippingQuote!==null],['card','Debit / Credit Card','Payment gateway required',false],['net','Net Banking','Payment gateway required',false],['wallet','Wallets','Payment gateway required',false],['emi','EMI','Financing provider required',false],['cod','Cash on Delivery (COD)','Not enabled by store',false]];
+  return `<section class="pm-card pm-methods"><h2>${payIcon('card')} Choose Payment Method</h2>${rows.map(([id,title,sub,enabled])=>`<button type="button" class="pm-method ${state.payment===id&&enabled?'selected':''}" data-payment-method="${id}" ${enabled?'':'disabled'} aria-pressed="${state.payment===id&&enabled}"><span class="pm-radio"></span><span class="pm-method-icon">${payIcon(id)}</span><span class="pm-method-text"><strong>${title}</strong><small>${sub}</small>${id==='upi'&&state.payment==='upi'&&enabled?'<span class="pm-apps"><b>G Pay</b><b>PhonePe</b><b>Paytm</b><b>BHIM</b></span>':''}</span><span class="pm-method-end">${enabled?'›':id==='bank'&&!bankChecked?'Checking…':'Unavailable'}</span></button>`).join('')}</section>`;
+}
+function bankDetails(bank){
+  return bank?`<div class="pm-bank"><h3>${payIcon('bank')} Bank Account (Transfer / NEFT / RTGS)</h3>${[['Bank',bank.bankName],['Account Name',bank.accountName],['Account Number',bank.accountNumber],['IFSC',bank.ifsc]].map(([label,value])=>`<div class="pm-bank-row"><span>${label}</span><strong>${esc(value)}</strong><button type="button" data-copy-pay="${esc(value)}" aria-label="Copy ${label}">${payIcon('copy')}</button></div>`).join('')}</div>`:'<p>Bank details are not available for this order. Contact the store before paying.</p>';
+}
 function paymentPage(){
+  if(!authKnown)return '<div class="container store-page">'+head('CHECKOUT','Checking account…')+'</div>';
   if(!count()&&!state.activeOrder){go('cart');return '';}
   if(signedInUser&&addressStatus==='loading'&&!state.activeOrder)return '<div class="container store-page">'+head('CHECKOUT','Loading your address…')+'</div>';
-  const address=currentAddress();
-  if(!address&&!state.activeOrder){go('address');return '';}
-  const order=state.activeOrder;
-  const addressBlock=order?order.address:address;
+  if(!currentAddress()&&!state.activeOrder){go('address');return '';}
+  const order=state.activeOrder,bank=order?.method==='bank',waiting=order?.status==='payment_pending';
   let content='';
-  if(!signedInUser) {
-    content='<div class="payment-preview-notice"><strong>Mobile OTP login required</strong><p>For secure orders, sign in using your mobile number before paying.</p></div><a class="store-btn primary" href="#/account">Sign in to continue →</a>';
-  } else if(order) {
-    const waiting=order.status==='payment_pending';
-    const status=({
-      payment_pending:'Awaiting UPI payment',
-      verification_pending:'Payment reference submitted — checking with bank',
-      paid:'Payment confirmed by Woodpeck International',
-      rejected:'Payment could not be verified — contact the store',
-      cancelled:'Order cancelled'
-    })[order.status]||'Order status: '+order.status;
-    content='<section class="upi-live-box">'+
-      '<div class="upi-heading"><h2>'+esc(status)+'</h2><p>Order ID: <code>'+esc(order.id)+'</code></p></div>'+
-      '<p>Pay <strong>'+money(order.total)+'</strong> only to <strong>'+esc(order.merchantName||'WOODPECK INTERNATIONAL')+'</strong>.</p>'+
-      (waiting?'<div class="upi-qr-wrap"><img id="payQr" alt="UPI QR code for this order and exact payable amount"/><p>Scan with any UPI app</p></div>'+
-       '<div class="upi-id">UPI ID: <strong>'+esc(order.merchantUpi||MERCHANT_UPI)+'</strong></div>'+
-       '<a class="store-btn primary upi-pay-action" href="'+esc(upiLink(order))+'">Pay '+money(order.total)+' using UPI App →</a>'+
-       '<p class="payment-safety">Check recipient name and amount inside your UPI app. Do not enter a PIN on this website.</p>'+
-       '<form id="upiReferenceForm" class="upi-reference-form"><label for="upiUtr">After payment, enter your UPI transaction reference / UTR</label>'+
-       '<input id="upiUtr" name="utr" type="text" inputmode="numeric" pattern="[0-9]{10,22}" minlength="10" maxlength="22" placeholder="UPI Transaction / UTR number" required/>'+
-       '<button type="submit" class="store-btn primary">Submit for bank verification</button></form>':
-       '<p class="payment-safety">Payment is only considered successful after the shop checks its bank statement. UTR alone is not proof of payment.</p>'+
-       (order.utr?'<p>Submitted reference: <strong>'+esc(order.utr)+'</strong></p>':''))+
-      '<div id="upiMessage" role="status"></div><button class="store-btn ghost" id="refreshUpiOrder">Refresh order status</button>'+
-      '<button class="store-btn ghost" id="newUpiOrder">Start a new checkout</button>'+
-      '</section>';
-  } else if(exceedsUpiLimit()) {
-    content='<h2 class="checkout-panel-title">UPI Payment</h2><div class="payment-preview-notice payment-limit"><strong>Order exceeds the online UPI checkout limit</strong><p>Your order total '+money(subtotal()+(shippingQuote??0))+' exceeds this store’s ₹1,00,000 single-payment checkout limit. Please edit your cart or contact Woodpeck International to arrange a verified bank transfer for the full order.</p><a class="store-btn primary" href="#/cart">Edit Cart →</a></div>';
-  } else {
-    content='<h2 class="checkout-panel-title">UPI Payment</h2>'+
-      '<div class="payment-options"><div class="payment-option active"><span class="pay-icon">₹</span><span class="pay-info"><strong>UPI — Google Pay, PhonePe, BHIM</strong><small>Money goes directly to Woodpeck International bank-linked UPI.</small></span></div></div>'+
-      '<div class="payment-preview-notice"><strong>Secure order creation</strong><p>The server will verify published stock, calculate the exact item prices and merchant-approved delivery charge. Payment QR is shown only after the final amount is confirmed. If the merchant has not enabled checkout, no payment QR will be shown.</p></div>'+
-      '<button class="store-btn primary" id="createUpiOrder"'+(paymentCreating?' disabled':'')+'>'+(paymentCreating?'Creating secure order…':'Generate order &amp; show exact UPI amount →')+'</button>'+
-      '<p class="payment-safety">Payment is manually verified against the merchant bank account, not automatically by a gateway.</p>'+
-      '<div id="upiMessage" role="alert"></div>';
+  if(order){
+    const status=({payment_pending:bank?'Awaiting Bank Transfer':'Awaiting UPI Payment',verification_pending:'Payment submitted — bank verification pending',paid:'Payment confirmed by Woodpeck International',rejected:'Payment could not be verified',cancelled:'Order cancelled'})[order.status]||'Order status unavailable';
+    content=`<section class="pm-card pm-details"><h2>${payIcon(bank?'bank':'upi')} ${esc(status)}</h2><p class="pm-order-id">Order ID: ${esc(order.id)}</p>${waiting?(bank?bankDetails(order.bank):`<div class="pm-upi"><div class="upi-qr-wrap"><img id="payQr" alt="UPI QR code for exact order amount"><p>Scan & Pay with any UPI app</p></div><div><h3>UPI ID</h3><div class="pm-copy"><strong>${esc(order.merchantUpi||MERCHANT_UPI)}</strong><button type="button" data-copy-pay="${esc(order.merchantUpi||MERCHANT_UPI)}" aria-label="Copy UPI ID">${payIcon('copy')}</button></div><p>Receiver: ${esc(order.merchantName||'WOODPECK INTERNATIONAL')}</p></div></div>`):''}<p class="pm-note">${waiting?'Transfer exactly '+money(order.total)+' to the displayed merchant account. Confirm the beneficiary before payment.':'The shop checks the actual bank receipt before marking a payment confirmed.'}</p></section>${waiting?`<section class="pm-card"><h2>${payIcon('list')} After Payment</h2><form id="upiReferenceForm" class="upi-reference-form"><label for="upiUtr">Enter UTR / Transaction Reference Number</label><input id="upiUtr" name="utr" type="text" inputmode="${bank?'text':'numeric'}" pattern="${bank?'[A-Za-z0-9]{8,30}':'[0-9]{10,22}'}" minlength="${bank?8:10}" maxlength="${bank?30:22}" placeholder="Enter UTR / Transaction ID" required><label for="paymentProof">Upload Payment Screenshot (Optional)</label><div class="pm-proof"><input type="file" name="proof" id="paymentProof" accept="image/jpeg,image/png,application/pdf"><small>JPG, PNG or PDF · Max 5 MB</small></div><button type="submit" class="store-btn primary">Submit for bank verification</button></form></section>`:order.utr?`<section class="pm-card">Submitted reference: <strong>${esc(order.utr)}</strong></section>`:''}<div id="upiMessage" role="status"></div><button class="store-btn ghost pm-refresh" id="refreshUpiOrder">Refresh order status</button><button class="store-btn ghost pm-refresh" id="newUpiOrder">Start a new checkout</button>${waiting&&!bank?`<div class="pm-footer"><a class="pm-pay" href="${esc(upiLink(order))}">${payIcon('lock')} Pay ${money(order.total)} →</a></div>`:''}`;
+  }else{
+
+    // paymentOptions may select bank for larger orders; compute eligibility after it.
+    const options=paymentOptions();
+    const enabled=shippingQuote!==null&&(state.payment==='bank'?bankAvailable:!exceedsUpiLimit());
+    content=options+`<section class="pm-card pm-details"><h2>${payIcon(state.payment==='bank'?'bank':'upi')} ${state.payment==='bank'?'Bank Transfer Details':'UPI Payment Details'}</h2><p>${enabled?'Confirm your order to generate the exact payment instructions.':exceedsUpiLimit()?'This order exceeds the ₹1,00,000 UPI checkout limit. Bank transfer requires verified merchant settings.':'Payment is unavailable until the delivery charge and merchant settings are confirmed.'}</p>${exceedsUpiLimit()&&!bankAvailable?'<a class="store-btn ghost" href="#/cart">Edit Cart</a>':''}</section><div id="upiMessage" role="alert"></div><div class="pm-footer"><button class="pm-pay" id="createUpiOrder" ${!enabled||paymentCreating?'disabled':''}>${payIcon('lock')} ${paymentCreating?'Creating secure order…':state.payment==='bank'?'Create Bank Transfer Order':shippingQuote===null?'Confirm Order':'Continue to Pay '+money(subtotal()+shippingQuote)} →</button></div>`;
   }
-  return '<div class="container store-page">'+breadcrumb(['Checkout','Payment'])+
-    head('FINAL STEP','Payment Method','Pay directly to Woodpeck International by UPI.')+
-    stepper('payment')+'<div class="store-checkout-layout"><section class="checkout-main">'+
-    (addressBlock?'<div class="address-strip"><div><small>DELIVER TO</small><strong>'+esc(addressBlock.name)+' · '+esc(addressBlock.phone)+'</strong><span>'+esc(addressBlock.line1)+', '+esc(addressBlock.city)+', '+esc(addressBlock.state)+' - '+esc(addressBlock.pin)+'</span></div>'+(!order?'<a href="#/address">Change</a>':'')+'</div>':'')+
-    content+'</section>'+(order?orderSummary(order):cartSummary('',null))+'</div></div>';
+  const address=order?.address||currentAddress();
+  return `<div class="container store-page pm-page">${stepper('payment')}${paymentPrices(order)}${address?`<section class="pm-card pm-deliver"><div><small>DELIVER TO</small><strong>${esc(address.name)}</strong><span>${esc(address.line1)}, ${esc(address.city)} – ${esc(address.pin)}</span></div>${!order?'<a href="#/address">Change</a>':''}</section>`:''}${content}<div class="pm-safe">${payIcon('shield')}<div><strong>Bank-verified payment</strong><small>Never share your UPI PIN or card details here. Payment is confirmed only after checking the bank receipt.</small></div></div></div>`;
 }
 async function displayUpiQr(){
   const img=$('payQr');
@@ -423,6 +410,7 @@ function render() {
   document.body.classList.toggle('auth-view',kind==='account');
   document.body.classList.toggle('product-view',kind==='product');
   document.body.classList.toggle('address-view',kind==='address');
+  document.body.classList.toggle('payment-view',kind==='payment');
   if(kind!=='product')detailSelection={id:null,photo:0,qty:1};
   $('page').innerHTML=body;
   document.title = (kind.charAt(0).toUpperCase()+kind.slice(1))+' | Woodpeck International';
@@ -486,10 +474,13 @@ document.addEventListener('submit',async (event)=>{
     if(!state.activeOrder||!event.target.reportValidity())return;
     const btn=event.target.querySelector('button');btn.disabled=true;
     try{
-      await submitUpiReference({orderId:state.activeOrder.id,utr:event.target.elements.utr.value.trim()});
+      const order=state.activeOrder,proof=event.target.elements.proof?.files?.[0],utr=event.target.elements.utr.value.trim();
+      if(proof){btn.textContent='Uploading payment proof…';await uploadPaymentProof(order,proof);}
+      btn.textContent='Submitting reference…';
+      await submitUpiReference({orderId:order.id,utr});
       await refreshCurrentUpiOrder();
-    }catch(err){$('upiMessage').textContent='Reference could not be submitted: '+(err.message||err.code);}
-    finally{if(btn.isConnected)btn.disabled=false;}
+    }catch(err){const msg=$('upiMessage');if(msg)msg.textContent='Reference could not be submitted: '+(err.message||err.code);}
+    finally{if(btn.isConnected){btn.disabled=false;btn.textContent='Submit for bank verification';}}
     return;
   }
   if(event.target.id==='deliveryForm'){
@@ -514,29 +505,33 @@ document.addEventListener('submit',async (event)=>{
   }
 });
 document.addEventListener('click',async event=>{
+  const method=event.target.closest('[data-payment-method]');if(method&&!method.disabled&&!state.activeOrder&&!paymentCreating){state.payment=method.dataset.paymentMethod;render();return;}
+  const copy=event.target.closest('[data-copy-pay]');if(copy){try{await navigator.clipboard.writeText(copy.dataset.copyPay);toast('Copied');}catch(e){toast('Unable to copy. Select and copy the value.');}return;}
   const create=event.target.closest('#createUpiOrder');
   if(create){
     if(!signedInUser){go('account');return;}
     if(!currentAddress()){go('address');return;}
     if(paymentCreating)return;
-    if(exceedsUpiLimit()){render();return;}
-    const buyerUid=signedInUser.uid, delivery=currentAddress();
+    if(shippingQuote===null||(state.payment==='upi'&&exceedsUpiLimit())||(state.payment==='bank'&&!bankAvailable)){render();return;}
+    const buyerUid=signedInUser.uid, delivery=currentAddress(),method=state.payment;
     paymentCreating=true;create.disabled=true;create.textContent='Creating secure order…';
     try{
-      const result=await createUpiOrder({address:delivery,
+      const result=await createUpiOrder({address:delivery,method,
         items:Object.entries(state.cart).filter(([id])=>!!item(id)).map(([id,qty])=>({id,qty}))});
       if(signedInUser?.uid!==buyerUid)return;
+      if((result.method||'upi')!==method)throw new Error('Payment method unavailable. Do not pay this order.');
       state.activeOrder={...result,id:result.orderId,address:delivery,status:'payment_pending',uid:buyerUid};
       localStorage.setItem('woodpeck-current-order',JSON.stringify({id:result.orderId,uid:signedInUser.uid}));
       render();
     }catch(err){
       const el=$('upiMessage');
       if(el){const code=String(err.code||'');el.textContent=(code.endsWith('/internal')||code.endsWith('/unavailable')?'Payment server temporarily unavailable. Please try again.':(err.message||'Could not create the order.'))+' No payment was initiated.';}
-    }finally{paymentCreating=false;const button=$('createUpiOrder');if(button){button.disabled=false;button.textContent='Generate order & show exact UPI amount →';}}
+    }finally{paymentCreating=false;const button=$('createUpiOrder');if(button){button.disabled=false;button.textContent=state.payment==='bank'?'Create Bank Transfer Order →':'Continue to Pay '+money(subtotal()+(shippingQuote??0))+' →';}}
     return;
   }
   if(event.target.closest('#refreshUpiOrder')){await refreshCurrentUpiOrder();return;}
   if(event.target.closest('#newUpiOrder')){
+    if(['payment_pending','verification_pending'].includes(state.activeOrder?.status)&&!confirm('This order is still pending. Do not pay twice. If you have already transferred money, submit the reference or contact the store. Start a different checkout?'))return;
     state.activeOrder=null;localStorage.removeItem('woodpeck-current-order');render();
   }
 });
@@ -632,7 +627,7 @@ onLoginChange(user => {
   const uid=user?.uid||null;
   const changed=uid!==addressUid;
   if(changed){
-    addressUid=uid;state.addresses=[];state.selectedAddress=null;state.addAddressForm=false;editingAddress=null;shippingQuote=null;addressStatus=uid?'loading':'idle';
+    addressUid=uid;state.addresses=[];state.selectedAddress=null;state.addAddressForm=false;editingAddress=null;shippingQuote=null;bankAvailable=false;bankChecked=false;state.payment='upi';addressStatus=uid?'loading':'idle';
     if(uid){void loadAddressBook(uid);void loadDeliveryQuote(uid);}
   }
   if(!user||(state.activeOrder&&state.activeOrder.uid!==uid))state.activeOrder=null;
@@ -653,6 +648,7 @@ watchPublishedProducts((cloudItems, fromCache) => {
     save();
   }
   const route=location.hash.replace(/^#\/?/,'').split('/')[0];
+  if(route==='payment'&&$('upiReferenceForm'))return;
   if(route==='address'&&$('deliveryForm')){if($('deliverySummary'))$('deliverySummary').innerHTML=deliverySummaryContent();}else if(['shop','product','wishlist','cart','address','payment'].includes(route)||!route)render();
 },error=>{
   catalogStatus='error';

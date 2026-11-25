@@ -66,6 +66,19 @@ service cloud.firestore {
         request.resource.data.label in ['Home','Work','Other'] &&
         request.resource.data.updatedAt == request.time;
     }
+    match /settings/bankTransfer {
+      allow get: if isAdmin() || (request.auth != null && request.auth.token.phone_number is string && resource.data.enabled == true);
+      allow list, delete: if false;
+      allow create, update: if isAdmin() &&
+        request.resource.data.keys().hasOnly(['enabled','bankName','accountName','accountNumber','ifsc','updatedAt']) &&
+        request.resource.data.keys().hasAll(['enabled','bankName','accountName','accountNumber','ifsc','updatedAt']) &&
+        request.resource.data.enabled is bool &&
+        request.resource.data.bankName is string && request.resource.data.bankName.size() >= 2 && request.resource.data.bankName.size() <= 100 &&
+        request.resource.data.accountName is string && request.resource.data.accountName.size() >= 2 && request.resource.data.accountName.size() <= 100 &&
+        request.resource.data.accountNumber is string && request.resource.data.accountNumber.matches('^[0-9]{8,20}$') &&
+        request.resource.data.ifsc is string && request.resource.data.ifsc.matches('^[A-Z]{4}0[A-Z0-9]{6}$') &&
+        request.resource.data.updatedAt == request.time;
+    }
     match /settings/checkout {
       // Signed-in shoppers can read the same configured delivery quote; only admins may write it.
       allow get: if isAdmin() || (request.auth != null && request.auth.token.phone_number is string);

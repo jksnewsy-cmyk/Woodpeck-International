@@ -86,3 +86,18 @@ and a ₹100 shipping charge. The ₹100,000 single-order UPI cap remains enforc
 on the server; larger orders require a separately agreed bank transfer.
 A real low-value authenticated checkout and independent bank receipt
 verification are still required to validate actual funds transfer.
+
+## Payment methods — 2026-11-25
+
+UPI stays capped at ₹100,000 per checkout. Bank transfer (NEFT/IMPS/RTGS)
+uses the same server-validated inventory, taxes and delivery charge, with
+bank details saved by an approved seller under settings/bankTransfer.
+The merchant must verify the real business account, account holder and IFSC
+before enabling it. No bank details have been seeded from mockup data.
+The server snapshots the enabled account on each bank order and accepts
+alphanumeric bank transaction references. UPI references remain numeric.
+Optional JPG/PNG/PDF payment evidence (up to 5 MB) is stored under a
+customer/order-specific private path; the order owner and authorized admins
+can read it. Evidence does not prove receipt. Admin must check the bank.
+Card, net banking gateway, wallets, EMI and COD remain unavailable until
+their actual provider or merchant fulfillment flow is implemented.
