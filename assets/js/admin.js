@@ -12,9 +12,12 @@ const $ = id => document.getElementById(id);
 const esc = s => String(s??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&quot;'}[ch]));
 let products = [], unsubscribe = null, orderUnsubscribe = null, currentUser = null, isAdmin = false, checking = false;
 const form = $('productForm');
+let editorBusy=false;
+const editor=$('productDialog');
 const setView = name => {
   ['loading','authGate','restricted','dashboard'].forEach(id=>$(id).hidden=id!==name);
   $('signOut').hidden=name==='loading'||name==='authGate';
+  if(name!=='dashboard'&&editor.open)editor.close();
 };
 function alertMessage(id, text, bad=false) {
   const el=$(id);el.textContent=text;el.style.color=bad?'#af3022':'#32794b';
@@ -102,17 +105,63 @@ function displayProducts() {
 $('productSearch').addEventListener('input',displayProducts);
 $('productFilter').addEventListener('change',displayProducts);
 function openForm(id=''){
-  form.reset();$('extraPhotoProgress').textContent='';$('editingId').value=id;$('imagePreview').hidden=true;$('uploadProgress').textContent='';$('formError').textContent='';
+  if(!isAdmin||editorBusy)return;
+  form.reset();$('mainPhotoFilename').textContent='Upload product photo';$('extraPhotoProgress').textContent='';$('editingId').value=id;$('imagePreview').hidden=true;$('uploadProgress').textContent='';$('formError').textContent='';
   $('dialogTitle').textContent=id?'Edit Product':'Add Product';
+  $('dialogSubtitle').textContent=id?'Update product details for your store':'Create a new product for your store';
   const p=products.find(p=>p.id===id);
   if(p){for(const key of ['name','category','price','compareAt','stock','description','materials','tag','image','variantGroup','finish','configuration'])form.elements[key].value=p[key]??'';
     form.elements.images.value=Array.isArray(p.images)?p.images.join('\n'):'';form.elements.published.checked=!!p.published;form.elements.bestseller.checked=!!p.bestseller;previewImage();}
-  $('productDialog').showModal();
+  previewImage();renderExtraPhotos();updateStockButtons();
+  editor.showModal();editor.scrollTop=0;
 }
-function previewImage(){const url=form.elements.image.value.trim();const img=$('imagePreview');img.hidden=!/^https:\/\//i.test(url);if(!img.hidden)img.src=url;}
+function previewImage(){
+  const url=form.elements.image.value.trim(),img=$('imagePreview');
+  const valid=/^https:\/\//i.test(url);
+  img.hidden=!valid;$('imagePlaceholder').hidden=valid;
+  if(valid)img.src=url;else img.removeAttribute('src');
+}
+const extraUrls=()=>form.elements.images.value.split(/\r?\n/).map(x=>x.trim()).filter(Boolean);
+function renderExtraPhotos(){
+  const urls=extraUrls(), thumbs=$('extraPhotoThumbs');
+  thumbs.replaceChildren();
+  urls.forEach((url,i)=>{
+    if(!/^https:\/\//i.test(url))return;
+    const tile=document.createElement('div');tile.className='pf-thumb';
+    const img=document.createElement('img');img.src=url;img.alt='Additional product photo '+(i+1);
+    const remove=document.createElement('button');remove.type='button';remove.textContent='×';remove.setAttribute('aria-label','Remove photo '+(i+1));remove.disabled=editorBusy;
+    remove.addEventListener('click',()=>{if(editorBusy)return;const current=extraUrls();current.splice(i,1);form.elements.images.value=current.join('\n');renderExtraPhotos();});
+    tile.append(img,remove);thumbs.append(tile);
+  });
+  $('extraPhotoCount').textContent='('+urls.length+'/9)';
+  $('extraPhotoFiles').disabled=editorBusy||urls.length>=9;
+  document.querySelector('.pf-add-more').setAttribute('aria-disabled',String($('extraPhotoFiles').disabled));
+}
+function updateStockButtons(){
+  const n=Number(form.elements.stock.value);
+  $('stockMinus').disabled=n<=0;
+  $('stockPlus').disabled=n>=100000;
+}
+function stepStock(delta){
+  const n=Number(form.elements.stock.value);
+  form.elements.stock.value=Math.max(0,Math.min(100000,(Number.isFinite(n)?Math.trunc(n):0)+delta));updateStockButtons();
+}
+function setEditorBusy(busy){
+  editorBusy=busy;
+  for(const id of ['saveProduct','cancelForm','closeDialog','photoFile'])$(id).disabled=busy;
+  form.elements.images.readOnly=busy;
+  form.elements.image.readOnly=busy;
+  renderExtraPhotos();
+}
+$('stockMinus').addEventListener('click',()=>stepStock(-1));
+$('stockPlus').addEventListener('click',()=>stepStock(1));
+form.elements.stock.addEventListener('input',updateStockButtons);
+form.elements.images.addEventListener('input',renderExtraPhotos);
+$('imagePreview').addEventListener('error',()=>{$('imagePreview').hidden=true;$('imagePlaceholder').hidden=false;});
 $('addProduct').addEventListener('click',()=>openForm());
 $('imageUrl').addEventListener('input',previewImage);
-function closeDialog(){$('productDialog').close();}
+function closeDialog(){if(!editorBusy)editor.close();}
+editor.addEventListener('cancel',e=>{if(editorBusy)e.preventDefault();});
 $('closeDialog').addEventListener('click',closeDialog);
 $('cancelForm').addEventListener('click',closeDialog);
 $('productsTable').addEventListener('click',async e=>{
@@ -124,35 +173,49 @@ $('productsTable').addEventListener('click',async e=>{
   }
 });
 $('photoFile').addEventListener('change',async e=>{
-  const file=e.target.files?.[0];if(!file)return;
-  $('uploadProgress').textContent='Uploading photo…';
-  try{const url=await uploadProductImage(file,n=>$('uploadProgress').textContent=`Uploading ${n}%`);
+  const file=e.target.files?.[0];if(!file||editorBusy||!isAdmin)return;
+  const session=auth.currentUser?.uid;
+  $('mainPhotoFilename').textContent=file.name;
+  $('uploadProgress').textContent='Uploading photo…';setEditorBusy(true);
+  try{
+    const url=await uploadProductImage(file,n=>$('uploadProgress').textContent='Uploading '+n+'%');
+    if(!editor.open||auth.currentUser?.uid!==session)return;
     $('imageUrl').value=url;previewImage();$('uploadProgress').textContent='Photo uploaded successfully.';
-  }catch(error){$('uploadProgress').textContent=`Upload failed: ${error.message}`;}
+  }catch(error){$('uploadProgress').textContent='Upload failed: '+error.message;}
+  finally{setEditorBusy(false);e.target.value='';}
 });
 $('extraPhotoFiles').addEventListener('change',async e=>{
-  const files=Array.from(e.target.files||[]), field=form.elements.images, status=$('extraPhotoProgress'), save=$('saveProduct');
-  const urls=field.value.split(/\r?\n/).map(x=>x.trim()).filter(Boolean);
-  if(urls.length+files.length>9){status.textContent='Maximum 9 additional photos.';return;}
-  save.disabled=true;
-  try{for(const [i,file] of files.entries()){const url=await uploadProductImage(file,n=>status.textContent='Photo '+(i+1)+' / '+files.length+' – '+n+'%');urls.push(url);field.value=urls.join('\n');}status.textContent='Photos uploaded.';}
-  catch(err){status.textContent='Upload failed: '+err.message;}
-  finally{save.disabled=false;e.target.value='';}
+  const files=Array.from(e.target.files||[]),field=form.elements.images,status=$('extraPhotoProgress');
+  if(!files.length||editorBusy||!isAdmin)return;
+  const urls=extraUrls(),session=auth.currentUser?.uid;
+  if(urls.length+files.length>9){status.textContent='Maximum 9 additional photos.';e.target.value='';return;}
+  setEditorBusy(true);
+  try{
+    for(const [i,file] of files.entries()){
+      const url=await uploadProductImage(file,n=>status.textContent='Photo '+(i+1)+' / '+files.length+' – '+n+'%');
+      if(!editor.open||auth.currentUser?.uid!==session)return;
+      urls.push(url);field.value=urls.join('\n');renderExtraPhotos();
+    }
+    status.textContent='Photos uploaded.';
+  }catch(err){status.textContent='Upload failed: '+err.message;}
+  finally{setEditorBusy(false);e.target.value='';}
 });
 form.addEventListener('submit',async e=>{
-  e.preventDefault();if(!isAdmin || !auth.currentUser)return;
-  const btn=$('saveProduct');btn.disabled=true;$('formError').textContent='';
+  e.preventDefault();if(!isAdmin||!auth.currentUser||editorBusy)return;
+  $('formError').textContent='';
+  const data=Object.fromEntries(new FormData(form).entries());
+  setEditorBusy(true);
   try{
-    const data=Object.fromEntries(new FormData(form).entries());
     data.published=form.elements.published.checked;data.bestseller=form.elements.bestseller.checked;
     data.images=String(data.images||'').split(/\r?\n/).map(x=>x.trim()).filter(Boolean);
     if(data.images.length>9||data.images.some(x=>!/^https:\/\//i.test(x)||x.length>2000))throw new Error('Enter up to 9 valid HTTPS image URLs.');
-    if(!/^https:\/\//i.test(data.image)) throw new Error('Upload a photo or enter an HTTPS image URL.');
+    if(!/^https:\/\//i.test(data.image))throw new Error('Upload a photo or enter an HTTPS image URL.');
     if(!Number.isInteger(Number(data.stock))||Number(data.stock)<0)throw new Error('Stock must be a whole number of 0 or more.');
     if(Number(data.compareAt)<Number(data.price))throw new Error('MRP should be equal to or above selling price.');
     await saveProduct(data,$('editingId').value||undefined);
-    closeDialog();alertMessage('status','Product saved successfully. Published products appear in the storefront.');
-  }catch(err){alertMessage('formError',err.message,true)}finally{btn.disabled=false;}
+    editor.close();alertMessage('status','Product saved successfully. Published products appear in the storefront.');
+  }catch(err){alertMessage('formError',err.message,true);$('formError').scrollIntoView({block:'nearest'});}
+  finally{setEditorBusy(false);}
 });
 
 // Merchant settings must be explicitly confirmed and saved before the
